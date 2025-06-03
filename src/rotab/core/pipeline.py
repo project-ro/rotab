@@ -70,13 +70,65 @@ class Pipeline:
 
     def generate_script(self) -> str:
         import_lines = self._get_common_import_lines()
-        function_blocks = []
+        step_funcs = ["# STEPS FUNCTIONS:", ""]
+        process_funcs = ["# PROCESSES FUNCTIONS:"]
         main_calls = []
+
         for i, process in enumerate(self.config.get("processes", [])):
             process_name = process.get("name", f"block_{i}")
+            description = process.get("description", "")
+            step_calls = []
+            local_vars = set()
+
+            for step in process.get("steps", []):
+                step_name = step.get("name")
+                if not step_name:
+                    raise ValueError("Each step must have a 'name' field.")
+                if "with" in step:
+                    var = step["with"]
+                    local_vars.add(var)
+                    lines = [f"def step_{step_name}_{process_name}({var}):"]
+                    lines.append(f'    """Step: {step_name} """')
+                    if "filter" in step:
+                        lines.append(f"    {var} = {var}.query('{step['filter']}').copy()")
+                    if "define" in step:
+                        for line in step["define"].split("\n"):
+                            if line.strip():
+                                lhs, rhs = map(str.strip, line.split("=", 1))
+                                lambda_expr = self._to_lambda_expr(rhs)
+                                lines.append(f"    {var}.loc[:, '{lhs}'] = {var}.apply({lambda_expr}, axis=1)")
+                    if "select" in step:
+                        cols = step["select"]
+                        lines.append(f"    {var} = {var}[{cols}]")
+                    lines.append(f"    return {var}")
+                    step_funcs.append("\n".join(lines))
+                    step_funcs.append("")
+                    step_calls.append(f"    {var} = step_{step_name}_{process_name}({var})")
+                
+                elif "transform" in step:
+                    assign = step["transform"]
+                    lhs, rhs = map(str.strip, assign.split("=", 1))
+                    try:
+                        parsed = ast.parse(rhs, mode="eval")
+                        arg_names = sorted({
+                            node.id for node in ast.walk(parsed)
+                            if isinstance(node, ast.Name)
+                        })
+                    except Exception:
+                        raise ValueError(f"Cannot parse transform expression: {assign}")
+
+                    step_calls.append(f"    {lhs} = step_{step_name}_{process_name}({', '.join(arg_names)})")
+                    lines = [
+                        f"def step_{step_name}_{process_name}({', '.join(arg_names)}):",
+                        f'    """Step: {step_name}"""',
+                        f"    return {rhs}"
+                    ]
+                    step_funcs.append("\n".join(lines))
+                    step_funcs.append("")
+
+            # create process function
             func_lines = [""]
             func_lines.append(f"def process_{process_name}():")
-            description = process.get("description", "")
             if description:
                 func_lines.append(f'    """{description}"""')
 
@@ -87,41 +139,8 @@ class Pipeline:
                 func_lines.append(f"    {name} = pd.read_csv(r'{abs_path}')")
 
             func_lines.append("\n    # process steps")
-            step_calls = []
-            for step in process.get("steps", []):
-                step_name = step.get("name")
-                func_lines.append("")
-                if not step_name:
-                    raise ValueError("Each step must have a 'name' field.")
-                if 'with' in step:
-                    name = step['with']
-                    func_lines.append(f"    def step_{step_name}({name}):")
-                else:
-                    func_lines.append(f"    def step_{step_name}():")
-                func_lines.append(f'        """Step: {step_name}"""')
-                if "with" in step:
-                    name = step["with"]
-                    if "filter" in step:
-                        func_lines.append(f"        {name} = {name}.query('{step['filter']}').copy()")
-                    if "define" in step:
-                        for line in step["define"].split("\n"):
-                            if line.strip():
-                                lhs, rhs = map(str.strip, line.split("=", 1))
-                                lambda_expr = self._to_lambda_expr(rhs)
-                                func_lines.append(f"        {name}.loc[:, '{lhs}'] = {name}.apply({lambda_expr}, axis=1)")
-                    if "select" in step:
-                        cols = step["select"]
-                        func_lines.append(f"        {name} = {name}[{cols}]")
-                    func_lines.append(f"        return {name}")
-                    if 'with' in step:
-                        step_calls.append(f"    {name} = step_{step_name}({name})")
-                elif "transform" in step:
-                    lhs = step['transform'].split('=')[0].strip()
-                    func_lines.append(f"        result = {step['transform']}")
-                    func_lines.append(f"        return result")
-                    step_calls.append(f"    {lhs} = step_{step_name}()")
-            func_lines.append("")    
             func_lines.extend(step_calls)
+
             func_lines.append("\n    # dump output")
             for dump in process.get("dumps", []):
                 dfname, path = dump["return"], dump["path"]
@@ -130,10 +149,18 @@ class Pipeline:
                     "    os.makedirs(os.path.dirname(path), exist_ok=True)",
                     f"    {dfname}.to_csv(path, index=False)"
                 ])
-            function_blocks.append("\n".join(func_lines))
+
+            process_funcs.append("\n".join(func_lines))
             main_calls.append(f"process_{process_name}()")
 
-        script_lines = import_lines + [""] + function_blocks + ["", "if __name__ == '__main__':"] + [f"    {call}" for call in main_calls]
+        script_lines = (
+            import_lines
+            + ["", ""] 
+            + step_funcs
+            + process_funcs
+            + ["", "", "if __name__ == '__main__':"]
+            + [f"    {call}" for call in main_calls]
+            )
         return "\n".join(script_lines)
 
     def write_script(self, path: str):

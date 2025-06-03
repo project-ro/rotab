@@ -32,15 +32,9 @@ This is the minimal system designed to realize that philosophy.
 ### Template Example (YAML)
 
 ```yaml
-settings:
-  generate:
-    path: ../scripts/generated_user_flow.py
-    execute: true
-custom_functions:
-  define_funcs:
-    - ../../custom_functions/define_funcs.py
-  transform_funcs:
-    - ../../custom_functions/transform_funcs.py
+depends: # optional
+  - some_template.yaml
+
 processes:
   - process: transaction_enrichment
     description: Enrich user data with transaction details
