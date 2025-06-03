@@ -4,7 +4,7 @@
 **Fully compatible with LLM-based generation and validation.**
 
 **RoTab** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.  
-No need to write implementation—just describe what you want to do.  
+No implementation code required—just describe what you want to do.  
 This is the minimal system designed to realize that philosophy.
 
 ---
@@ -66,8 +66,12 @@ processes:
 ```python
 from rotab.core.pipeline import Pipeline
 
-pipeline = Pipeline.from_template_file("examples/config/example.yaml")
-pipeline.run()
+pipeline = Pipeline.from_template_dir(
+        dirpath="./config",
+        define_func_paths=["../custom_functions/define_funcs.py"],
+        transform_func_paths=["../custom_functions/transform_funcs.py"]
+    )
+    pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True)
 ```
 
 - Python code is generated at the path specified in the template
@@ -82,38 +86,64 @@ import pandas as pd
 from rotab.core.operation.define_funcs import *
 from rotab.core.operation.transform_funcs import *
 import importlib.util
-
-spec = importlib.util.spec_from_file_location('define_funcs', r'/home/rotab/custom_functions/define_funcs.py')
+import os
+spec = importlib.util.spec_from_file_location('define_funcs', r'/home/yutaitatsu/rotab/custom_functions/define_funcs.py')
 define_funcs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(define_funcs)
 globals().update({k: v for k, v in define_funcs.__dict__.items() if callable(v) and not k.startswith('__')})
-
-spec = importlib.util.spec_from_file_location('transform_funcs', r'/home/rotab/custom_functions/transform_funcs.py')
+spec = importlib.util.spec_from_file_location('transform_funcs', r'/home/yutaitatsu/rotab/custom_functions/transform_funcs.py')
 transform_funcs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(transform_funcs)
 globals().update({k: v for k, v in transform_funcs.__dict__.items() if callable(v) and not k.startswith('__')})
 
-# [PROCESS_1] Enrich user data with transaction details
 
-user = pd.read_csv(r'/home/rotab/examples/data/user.csv')
-trans = pd.read_csv(r'/home/rotab/examples/data/transaction.csv')
+# STEPS FUNCTIONS:
 
-user = user.query('age > 18')
-user['log_age'] = user.apply(lambda row: log(row['age']), axis=1)
-user['age_bucket'] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
-user = user[['user_id', 'log_age', 'age_bucket']]
+def step_filter_users_transaction_enrichment(user):
+    """Step: filter_users """
+    user = user.query('age > 18').copy()
+    user.loc[:, 'log_age'] = user.apply(lambda row: log(row['age']), axis=1)
+    user.loc[:, 'age_bucket'] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
+    user = user[['user_id', 'log_age', 'age_bucket']]
+    return user
 
-trans = trans.query('amount > 1000')
+def step_filter_transactions_transaction_enrichment(trans):
+    """Step: filter_transactions """
+    trans = trans.query('amount > 1000').copy()
+    return trans
 
-enriched = merge(left=user, right=trans, on='user_id')
+def step_merge_transactions_transaction_enrichment(merge, trans, user):
+    """Step: merge_transactions"""
+    return merge(left=user, right=trans, on='user_id')
 
-enriched['high_value'] = enriched.apply(lambda row: row['amount'] > 10000, axis=1)
-enriched = enriched[['user_id', 'log_age', 'amount', 'high_value']]
+def step_enrich_transactions_transaction_enrichment(enriched):
+    """Step: enrich_transactions """
+    enriched.loc[:, 'high_value'] = enriched.apply(lambda row: row['amount'] > 10000, axis=1)
+    enriched = enriched[['user_id', 'log_age', 'amount', 'high_value']]
+    return enriched
 
-import os
-path = os.path.abspath(r'../output/final_output.csv')
-os.makedirs(os.path.dirname(path), exist_ok=True)
-enriched.to_csv(path, index=False)
+# PROCESSES FUNCTIONS:
+
+def process_transaction_enrichment():
+    """Enrich user data with transaction details"""
+    # load tables
+    user = pd.read_csv(r'/home/rotab/examples/data/user.csv')
+    trans = pd.read_csv(r'/home/rotab/examples/data/transaction.csv')
+
+    # process steps
+    user = step_filter_users_transaction_enrichment(user)
+    trans = step_filter_transactions_transaction_enrichment(trans)
+    enriched = step_merge_transactions_transaction_enrichment(merge, trans, user)
+    enriched = step_enrich_transactions_transaction_enrichment(enriched)
+
+    # dump output
+    path = os.path.abspath(r'../output/final_output.csv')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    enriched.to_csv(path, index=False)
+
+
+if __name__ == '__main__':
+    process_transaction_enrichment()
 ```
 
 ---
