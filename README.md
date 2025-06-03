@@ -3,7 +3,7 @@
 **A template that moves with your thinking.**  
 **Fully compatible with LLM-based generation and validation.**
 
-**RoTab** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.  
+**ROTab** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.  
 No implementation code required—just describe what you want to do.  
 This is the minimal system designed to realize that philosophy.
 
@@ -71,7 +71,7 @@ pipeline = Pipeline.from_template_dir(
         define_func_paths=["../custom_functions/define_funcs.py"],
         transform_func_paths=["../custom_functions/transform_funcs.py"]
     )
-    pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True)
+pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True)
 ```
 
 - Python code is generated at the path specified in the template
