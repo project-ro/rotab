@@ -24,7 +24,7 @@ class TemplateValidator:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.errors: List[ValidationError] = []
-        self.allowed_top_keys = {"processes", "custom_functions", "settings"}
+        self.allowed_top_keys = {"processes",  "depends"}
         self.required_keys = {"process", "tables", "steps", "dumps"}
         self.optional_keys = {"description"}
         self.eval_scope = self._build_eval_scope()
@@ -72,14 +72,25 @@ class TemplateValidator:
                         f"Unexpected top-level key: `{key}`. Only {sorted(self.allowed_top_keys)} are allowed.",
                     )
                 )
-        self._validate_custom_functions(self.config)
         if "processes" not in self.config or not isinstance(self.config["processes"], list):
             self.errors.append(ValidationError("config", "`processes` must be a list."))
             return
         for i, proc in enumerate(self.config["processes"]):
             self._validate_process(proc, f"processes[{i}]")
 
+    def validate_depends(self):
+        if "depends" in self.config and not isinstance(self.config["depends"], list):
+            self.errors.append(ValidationError("config.depends", "`depends` must be a list."))
+            return
+        if "depends" in self.config:
+            for path in self.config["depends"]:
+                if not isinstance(path, str):
+                    self.errors.append(ValidationError(f"config.depends", "`depends` values must be a string."))
+                    continue
+    
     def _validate_process(self, proc: Dict[str, Any], path: str):
+        seen_table_names = set()  # 🔁 各 process ごとに初期化
+        
         missing_keys = self.required_keys - proc.keys()
         for key in missing_keys:
             self.errors.append(ValidationError(path, f"Missing required key: `{key}`"))
@@ -92,37 +103,14 @@ class TemplateValidator:
             self.errors.append(ValidationError(f"{path}.process", "`process` must be a string."))
 
         if "tables" in proc:
-            self._validate_tables(proc["tables"], f"{path}.tables")
+            self._validate_tables(proc["tables"], f"{path}.tables", seen_table_names)
         if "steps" in proc:
             table_names = {t["name"] for t in proc.get("tables", []) if isinstance(t, dict) and "name" in t}
             self._validate_steps(proc["steps"], table_names, f"{path}.steps")
         if "dumps" in proc:
             self._validate_dumps(proc["dumps"], proc, f"{path}.dumps")
 
-    def _validate_custom_functions(self, config: dict, path: str = "custom_functions"):
-        if "custom_functions" not in config:
-            return  # optional, so silently skip if not present
-
-        value = config["custom_functions"]
-        if not isinstance(value, dict):
-            self.errors.append(ValidationError(path, "`custom_functions` must be a dict."))
-            return
-
-        for key in ["define_funcs", "transform_funcs"]:
-            if key not in value:
-                continue  # optional keys
-            funcs_path = f"{path}.{key}"
-            funcs = value[key]
-            if not isinstance(funcs, list):
-                self.errors.append(ValidationError(funcs_path, f"`{key}` must be a list of file paths."))
-                continue
-            for i, item in enumerate(funcs):
-                if not isinstance(item, str):
-                    self.errors.append(ValidationError(f"{funcs_path}[{i}]", f"File path must be a string: {item!r}"))
-                elif not item.endswith(".py"):
-                    self.errors.append(ValidationError(f"{funcs_path}[{i}]", f"File path must end with `.py`: {item}"))
-
-    def _validate_tables(self, tables: Any, path: str):
+    def _validate_tables(self, tables: Any, path: str, seen_names: set):
         if not isinstance(tables, list):
             self.errors.append(ValidationError(path, "`tables` must be a list."))
             return
@@ -140,10 +128,12 @@ class TemplateValidator:
                 self.errors.append(ValidationError(f"{path}[{i}].path", "`path` must be a string."))
             elif re.search(r"[<>:\"|?*]", pth):
                 self.errors.append(ValidationError(f"{path}[{i}].path", "Invalid characters in path."))
-            if name in self.seen_table_names:
-                self.errors.append(ValidationError(f"{path}[{i}].name", f"Duplicate table name `{name}`"))
-            else:
-                self.seen_table_names.add(name)
+            if isinstance(name, str):
+                if name in seen_names:
+                    self.errors.append(ValidationError(f"{path}[{i}].name", f"Duplicate table name `{name}`"))
+                else:
+                    seen_names.add(name)
+
 
     def _validate_steps(self, steps: Any, table_names: set, path: str):
         if not isinstance(steps, list):

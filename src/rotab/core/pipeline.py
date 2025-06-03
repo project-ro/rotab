@@ -2,6 +2,8 @@ import os
 import ast
 from typing import Dict, Any
 import importlib.util
+import yaml
+import glob
 import subprocess
 import rotab.core.operation.define_funcs as define_funcs
 import rotab.core.operation.transform_funcs as transform_funcs
@@ -29,9 +31,11 @@ class RowExprTransformer(ast.NodeTransformer):
 
 
 class Pipeline:
-    def __init__(self, config: Dict[str, Any], base_path: str):
+    def __init__(self, config: Dict[str, Any], base_path: str, define_func_paths: list[str], transform_func_paths: list[str]):
         self.config = config
         self.base_path = base_path
+        self.define_func_paths = define_func_paths
+        self.transform_func_paths = transform_func_paths
         self.eval_scope = dict(eval_scope)
         self._validate_config()
 
@@ -61,7 +65,7 @@ class Pipeline:
     def _load_functions_from_paths(self, paths):
         for path in paths:
             module_name = os.path.splitext(os.path.basename(path))[0]
-            abs_path = os.path.abspath(os.path.join(self.base_path, path))
+            abs_path = os.path.abspath(path)
             spec = importlib.util.spec_from_file_location(module_name, abs_path)
             if spec is None or spec.loader is None:
                 raise ImportError(f"Cannot import from {path}")
@@ -73,7 +77,7 @@ class Pipeline:
         import_lines = ["import importlib.util"]
         all_paths = define_paths + transform_paths
         for path in all_paths:
-            abs_path = os.path.abspath(os.path.join(self.base_path, path))
+            abs_path = os.path.abspath(path)    
             module_name = os.path.splitext(os.path.basename(path))[0]
             import_lines.append(f"spec = importlib.util.spec_from_file_location('{module_name}', r'{abs_path}')")
             import_lines.append(f"{module_name} = importlib.util.module_from_spec(spec)")
@@ -83,21 +87,17 @@ class Pipeline:
             )
         return import_lines
 
-    def run(self):
+    def run(self, script_path: str, execute: bool = False):
         code_lines = [
-            "import pandas as pd",
-            "from rotab.core.operation.define_funcs import *",
-            "from rotab.core.operation.transform_funcs import *",
+        "import pandas as pd",
+        "from rotab.core.operation.define_funcs import *",
+        "from rotab.core.operation.transform_funcs import *",
         ]
-
-        custom_conf = self.config.get("custom_functions", {})
-        define_paths = custom_conf.get("define_funcs", [])
-        transform_paths = custom_conf.get("transform_funcs", [])
-
-        code_lines.extend(self._generate_custom_function_imports(define_paths, transform_paths))
-        self._load_functions_from_paths(define_paths)
-        self._load_functions_from_paths(transform_paths)
-
+        
+        code_lines.extend(self._generate_custom_function_imports(self.define_func_paths, self.transform_func_paths))
+        self._load_functions_from_paths(self.define_func_paths)
+        self._load_functions_from_paths(self.transform_func_paths)
+        
         processes = self.config.get("processes") or [self.config]
 
         code_lines.append("")
@@ -156,22 +156,63 @@ class Pipeline:
                 code_lines.append(f"os.makedirs(os.path.dirname(path), exist_ok=True)")
                 code_lines.append(f"{dfname}.to_csv(path, index=False)")
 
-        script_path = os.path.abspath(
-            os.path.join(self.base_path, self.config.get("settings", {}).get("generate", {}).get("path", "script.py"))
-        )
-        os.makedirs(os.path.dirname(script_path), exist_ok=True)
-        with open(script_path, "w") as f:
+        abs_script_path = os.path.abspath(os.path.join(self.base_path, script_path))
+        os.makedirs(os.path.dirname(abs_script_path), exist_ok=True)
+        with open(abs_script_path, "w") as f:
             f.write("\n".join(code_lines))
-
-        if self.config.get("settings", {}).get("generate", {}).get("execute", False):
-            generate_path = self.config["settings"]["generate"]["path"]
-            subprocess.run(["python", generate_path], cwd=self.base_path)
+            
+        if execute:
+            subprocess.run(["python", abs_script_path], cwd=self.base_path)
 
     @classmethod
-    def from_template_file(cls, filepath: str):
-        import yaml
+    def from_template_dir(
+        cls,
+        dirpath: str,
+        define_func_paths: list[str],
+        transform_func_paths: list[str]
+        ):
+        templates = {}
+        depends_graph = {}
+        settings_file = None
 
-        with open(filepath, "r") as f:
-            config = yaml.safe_load(f)
-        base_path = os.path.dirname(os.path.abspath(filepath))
-        return cls(config=config, base_path=base_path)
+        # read all YAML files in the directory
+        for filepath in glob.glob(os.path.join(dirpath, "*.yaml")):
+            with open(filepath, "r") as f:
+                cfg = yaml.safe_load(f) or {}
+            name = os.path.basename(filepath)
+            templates[name] = cfg
+            depends_graph[name] = cfg.get("depends", [])
+
+        # topological sort to resolve dependencies
+        resolved = []
+        visited = set()
+        temp = set()
+
+        def visit(name):
+            if name in visited:
+                return
+            if name in temp:
+                raise ValueError(f"Circular dependency detected at {name}")
+            temp.add(name)
+            for dep in depends_graph.get(name, []):
+                visit(dep)
+            temp.remove(name)
+            visited.add(name)
+            resolved.append(name)
+
+        for name in templates:
+            visit(name)
+
+        merged_config = {
+            "processes": [],
+        }
+
+        for name in resolved:
+            merged_config["processes"].extend(templates[name].get("processes", []))
+
+        return cls(
+            config=merged_config,
+            base_path=dirpath,
+            define_func_paths=define_func_paths,
+            transform_func_paths=transform_func_paths
+        )

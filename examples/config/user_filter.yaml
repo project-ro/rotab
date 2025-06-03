@@ -1,0 +1,14 @@
+processes:
+  - process: user_filter
+    description: Filter users under 30
+    tables:
+      - name: user
+        path: ../data/user.csv
+    steps:
+      - with: user
+        filter: age < 30
+        define: age_group = age // 10
+        select: [user_id, age, age_group]
+    dumps:
+      - return: user
+        path: ../output/filtered_users.csv
