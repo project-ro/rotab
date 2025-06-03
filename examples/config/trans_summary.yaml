@@ -1,11 +1,12 @@
 processes:
-  - process: trans_summary
+  - name: trans_summary
     description: Summarize transaction amounts
     tables:
       - name: trans
         path: ../data/transaction.csv
     steps:
-      - with: trans
+      - name: summarize_transactions
+        with: trans
         filter: amount > 0
         define: is_large = amount > 5000
         select: [user_id, amount, is_large]

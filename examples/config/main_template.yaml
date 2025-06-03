@@ -3,7 +3,7 @@ depends:
   - trans_summary.yaml
 
 processes:
-  - process: transaction_enrichment
+  - name: transaction_enrichment
     description: Enrich user data with transaction details
     tables:
       - name: user
@@ -11,16 +11,20 @@ processes:
       - name: trans
         path: ../data/transaction.csv
     steps:
-      - with: user
+      - name: filter_users
+        with: user
         filter: age > 18
         define: |
           log_age = log(age)
           age_bucket = age // 10 * 10
         select: [user_id, log_age, age_bucket]
-      - with: trans
+      - name: filter_transactions
+        with: trans
         filter: amount > 1000
-      - transform: enriched = merge(left=user, right=trans, on='user_id')
-      - with: enriched
+      - name: merge_transactions
+        transform: enriched = merge(left=user, right=trans, on='user_id')
+      - name: enrich_transactions
+        with: enriched
         define: high_value = amount > 10000
         select: [user_id, log_age, amount, high_value]
     dumps:

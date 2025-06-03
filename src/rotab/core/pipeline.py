@@ -1,19 +1,10 @@
 import os
-import ast
-from typing import Dict, Any
-import importlib.util
-import yaml
-import glob
 import subprocess
-import rotab.core.operation.define_funcs as define_funcs
-import rotab.core.operation.transform_funcs as transform_funcs
-from rotab.core.operation.validator import TemplateValidator
-
-
-eval_scope = {}
-for module in [define_funcs, transform_funcs]:
-    eval_scope.update({k: v for k, v in module.__dict__.items() if not k.startswith("__") and callable(v)})
-eval_scope.update(__builtins__)
+import ast
+import glob
+import yaml
+from typing import Dict, Any
+from rotab.core.operation import define_funcs, transform_funcs
 
 
 class RowExprTransformer(ast.NodeTransformer):
@@ -36,14 +27,10 @@ class Pipeline:
         self.base_path = base_path
         self.define_func_paths = define_func_paths
         self.transform_func_paths = transform_func_paths
-        self.eval_scope = dict(eval_scope)
-        self._validate_config()
-
-    def _validate_config(self):
-        validator = TemplateValidator(self.config)
-        validator.validate()
-        if validator.errors:
-            raise ValueError("Invalid config:\n" + "\n".join(str(e) for e in validator.errors))
+        self.eval_scope = {}
+        for module in [define_funcs, transform_funcs]:
+            self.eval_scope.update({k: v for k, v in module.__dict__.items() if not k.startswith("__") and callable(v)})
+        self.eval_scope.update(__builtins__)
 
     def _to_lambda_expr(self, rhs: str) -> str:
         tree = ast.parse(rhs, mode="eval")
@@ -62,107 +49,110 @@ class Pipeline:
         expr = ast.unparse(new_tree)
         return f"lambda row: {expr}"
 
-    def _load_functions_from_paths(self, paths):
-        for path in paths:
-            module_name = os.path.splitext(os.path.basename(path))[0]
-            abs_path = os.path.abspath(path)
-            spec = importlib.util.spec_from_file_location(module_name, abs_path)
-            if spec is None or spec.loader is None:
-                raise ImportError(f"Cannot import from {path}")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            self.eval_scope.update({k: v for k, v in module.__dict__.items() if callable(v) and not k.startswith("__")})
-
-    def _generate_custom_function_imports(self, define_paths, transform_paths) -> list[str]:
-        import_lines = ["import importlib.util"]
-        all_paths = define_paths + transform_paths
-        for path in all_paths:
-            abs_path = os.path.abspath(path)    
-            module_name = os.path.splitext(os.path.basename(path))[0]
-            import_lines.append(f"spec = importlib.util.spec_from_file_location('{module_name}', r'{abs_path}')")
-            import_lines.append(f"{module_name} = importlib.util.module_from_spec(spec)")
-            import_lines.append(f"spec.loader.exec_module({module_name})")
-            import_lines.append(
-                f"globals().update({{k: v for k, v in {module_name}.__dict__.items() if callable(v) and not k.startswith('__')}})"
-            )
-        return import_lines
-
-    def run(self, script_path: str, execute: bool = False):
-        code_lines = [
-        "import pandas as pd",
-        "from rotab.core.operation.define_funcs import *",
-        "from rotab.core.operation.transform_funcs import *",
+    def _get_common_import_lines(self) -> list[str]:
+        lines = [
+            "import pandas as pd",
+            "from rotab.core.operation.define_funcs import *",
+            "from rotab.core.operation.transform_funcs import *",
+            "import importlib.util",
+            "import os"
         ]
-        
-        code_lines.extend(self._generate_custom_function_imports(self.define_func_paths, self.transform_func_paths))
-        self._load_functions_from_paths(self.define_func_paths)
-        self._load_functions_from_paths(self.transform_func_paths)
-        
-        processes = self.config.get("processes") or [self.config]
+        for path in self.define_func_paths + self.transform_func_paths:
+            abs_path = os.path.abspath(path)
+            module_name = os.path.splitext(os.path.basename(path))[0]
+            lines.extend([
+                f"spec = importlib.util.spec_from_file_location('{module_name}', r'{abs_path}')",
+                f"{module_name} = importlib.util.module_from_spec(spec)",
+                f"spec.loader.exec_module({module_name})",
+                f"globals().update({{k: v for k, v in {module_name}.__dict__.items() if callable(v) and not k.startswith('__')}})"
+            ])
+        return lines
 
-        code_lines.append("")
-        for i, process in enumerate(processes):
+    def generate_script(self) -> str:
+        import_lines = self._get_common_import_lines()
+        function_blocks = []
+        main_calls = []
+        for i, process in enumerate(self.config.get("processes", [])):
+            process_name = process.get("name", f"block_{i}")
+            func_lines = [""]
+            func_lines.append(f"def process_{process_name}():")
             description = process.get("description", "")
             if description:
-                code_lines.append(f"# [PROCESS_{i+1}] {description}")
-                code_lines.append("")
+                func_lines.append(f'    """{description}"""')
 
-            code_lines.append("# load tables")
-            tables = process.get("tables", [])
-            for table in tables:
-                name = table["name"]
-                rel_path = table["path"]
+            func_lines.append("    # load tables")
+            for table in process.get("tables", []):
+                name, rel_path = table["name"], table["path"]
                 abs_path = os.path.abspath(os.path.join(self.base_path, rel_path))
-                code_lines.append(f"{name} = pd.read_csv(r'{abs_path}')")
+                func_lines.append(f"    {name} = pd.read_csv(r'{abs_path}')")
 
-            code_lines.append("")
-            code_lines.append("# process steps")
-            for j, step in enumerate(process.get("steps", [])):
-                if j > 0:
-                    code_lines.append("")
-
+            func_lines.append("\n    # process steps")
+            step_calls = []
+            for step in process.get("steps", []):
+                step_name = step.get("name")
+                func_lines.append("")
+                if not step_name:
+                    raise ValueError("Each step must have a 'name' field.")
+                if 'with' in step:
+                    name = step['with']
+                    func_lines.append(f"    def step_{step_name}({name}):")
+                else:
+                    func_lines.append(f"    def step_{step_name}():")
+                func_lines.append(f'        """Step: {step_name}"""')
                 if "with" in step:
                     name = step["with"]
                     if "filter" in step:
-                        code_lines.append(f"{name} = {name}.query('{step['filter']}')")
-
+                        func_lines.append(f"        {name} = {name}.query('{step['filter']}').copy()")
                     if "define" in step:
                         for line in step["define"].split("\n"):
                             if line.strip():
-                                parts = line.strip().split("=", 1)
-                                if len(parts) != 2:
-                                    raise ValueError(f"Invalid define syntax: {line.strip()}")
-                                lhs, rhs = parts[0].strip(), parts[1].strip()
+                                lhs, rhs = map(str.strip, line.split("=", 1))
                                 lambda_expr = self._to_lambda_expr(rhs)
-                                code_lines.append(f"{name}['{lhs}'] = {name}.apply({lambda_expr}, axis=1)")
-
+                                func_lines.append(f"        {name}.loc[:, '{lhs}'] = {name}.apply({lambda_expr}, axis=1)")
                     if "select" in step:
                         cols = step["select"]
-                        code_lines.append(f"{name} = {name}[{cols}]")
-
+                        func_lines.append(f"        {name} = {name}[{cols}]")
+                    func_lines.append(f"        return {name}")
+                    if 'with' in step:
+                        step_calls.append(f"    {name} = step_{step_name}({name})")
                 elif "transform" in step:
-                    code_lines.append(f"{step['transform']}")
-
-            code_lines.append("")
-            code_lines.append("# dump output")
-
-            if any(p.get("dumps") for p in self.config.get("processes", [])):
-                code_lines.append("import os")
-
+                    lhs = step['transform'].split('=')[0].strip()
+                    func_lines.append(f"        result = {step['transform']}")
+                    func_lines.append(f"        return result")
+                    step_calls.append(f"    {lhs} = step_{step_name}()")
+            func_lines.append("")    
+            func_lines.extend(step_calls)
+            func_lines.append("\n    # dump output")
             for dump in process.get("dumps", []):
-                dfname = dump["return"]
-                path = dump["path"]
-                code_lines.append(f"path = os.path.abspath(r'{path}')")
-                code_lines.append(f"os.makedirs(os.path.dirname(path), exist_ok=True)")
-                code_lines.append(f"{dfname}.to_csv(path, index=False)")
+                dfname, path = dump["return"], dump["path"]
+                func_lines.extend([
+                    f"    path = os.path.abspath(r'{path}')",
+                    "    os.makedirs(os.path.dirname(path), exist_ok=True)",
+                    f"    {dfname}.to_csv(path, index=False)"
+                ])
+            function_blocks.append("\n".join(func_lines))
+            main_calls.append(f"process_{process_name}()")
 
-        abs_script_path = os.path.abspath(os.path.join(self.base_path, script_path))
-        os.makedirs(os.path.dirname(abs_script_path), exist_ok=True)
-        with open(abs_script_path, "w") as f:
-            f.write("\n".join(code_lines))
-            
+        script_lines = import_lines + [""] + function_blocks + ["", "if __name__ == '__main__':"] + [f"    {call}" for call in main_calls]
+        return "\n".join(script_lines)
+
+    def write_script(self, path: str):
+        abs_path = os.path.abspath(path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w") as f:
+            f.write(self.generate_script())
+
+    def execute_script(self, path: str):
+        subprocess.run(["python", path], cwd=self.base_path)
+
+    def run(self, script_path: str, execute: bool):
+        abs_path = (
+            script_path if os.path.isabs(script_path)
+            else os.path.abspath(os.path.join(self.base_path, script_path))
+        )
+        self.write_script(abs_path)
         if execute:
-            subprocess.run(["python", abs_script_path], cwd=self.base_path)
+            self.execute_script(abs_path)
 
     @classmethod
     def from_template_dir(
@@ -173,7 +163,6 @@ class Pipeline:
         ):
         templates = {}
         depends_graph = {}
-        settings_file = None
 
         # read all YAML files in the directory
         for filepath in glob.glob(os.path.join(dirpath, "*.yaml")):
