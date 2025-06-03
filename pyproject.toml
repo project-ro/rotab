@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "rotab"
+version = "0.1.0"
+description = ""
+packages = [{ include = "rotab", from = "src" }]
+authors = ["yuta.itatsu <yuta.itatsu@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+pandas = "^2.2.3"
+pyyaml = "^6.0.2"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
