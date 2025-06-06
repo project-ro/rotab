@@ -36,7 +36,7 @@ depends: # optional
   - some_template.yaml
 
 processes:
-  - process: transaction_enrichment
+  - name: transaction_enrichment
     description: Enrich user data with transaction details
     tables:
       - name: user
