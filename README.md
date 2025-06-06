@@ -3,7 +3,7 @@
 **A template that moves with your thinking.**  
 **Fully compatible with LLM-based generation and validation.**
 
-**RoTab** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.  
+**ROTab** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.  
 No implementation code required—just describe what you want to do.  
 This is the minimal system designed to realize that philosophy.
 
@@ -67,11 +67,11 @@ processes:
 from rotab.core.pipeline import Pipeline
 
 pipeline = Pipeline.from_template_dir(
-        dirpath="./config",
-        define_func_paths=["../custom_functions/define_funcs.py"],
-        transform_func_paths=["../custom_functions/transform_funcs.py"]
+        dirpath="./examples/config",
+        define_func_paths=["./custom_functions/define_funcs.py"],
+        transform_func_paths=["./custom_functions/transform_funcs.py"],
     )
-    pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True)
+pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True, dag=True)
 ```
 
 - Python code is generated at the path specified in the template
@@ -153,16 +153,49 @@ if __name__ == '__main__':
 The template is internally analyzed for dependencies and automatically converted into a DAG.
 
 ```mermaid
-graph TD
-    user_csv[User CSV] --> step1[Filter: age > 18]
-    step1 --> step2[Define: log_age, age_bucket]
-    step2 --> step3[Select columns]
-    trans_csv[Transaction CSV] --> step4[Filter: amount > 1000]
-    step3 --> step5[Merge on user_id]
-    step4 --> step5
-    step5 --> step6[Define: high_value]
-    step6 --> step7[Select columns]
-    step7 --> output[Save: output/final_output.csv]
+graph TB
+
+%% ==== Template dependencies ====
+T_user_filter --> T_main_template
+T_trans_summary --> T_main_template
+
+%% ==== Processes in main_template ====
+subgraph T_main_template ["main_template"]
+  subgraph P_transaction_enrichment ["transaction_enrichment"]
+    S_../output/filtered_users.csv(["../output/filtered_users.csv"])
+    S_../output/filtered_transactions.csv(["../output/filtered_transactions.csv"])
+    S_filter_users_main(["filter_users_main"])
+    S_filter_transactions_main(["filter_transactions_main"])
+    S_merge_transactions(["merge_transactions"])
+    S_enrich_transactions(["enrich_transactions"])
+    S_../output/filtered_users.csv --> S_filter_users_main
+    S_../output/filtered_transactions.csv --> S_filter_transactions_main
+    S_filter_users_main --> S_merge_transactions
+    S_filter_transactions_main --> S_merge_transactions
+    S_merge_transactions --> S_enrich_transactions
+    S_enrich_transactions --> S_../output/final_output.csv
+  end
+end
+
+%% ==== Processes in trans_summary ====
+subgraph T_trans_summary ["trans_summary"]
+  subgraph P_trans_summary ["trans_summary"]
+    S_../data/transaction.csv(["../data/transaction.csv"])
+    S_summarize_transactions(["summarize_transactions"])
+    S_../data/transaction.csv --> S_summarize_transactions
+    S_summarize_transactions --> S_../output/filtered_transactions.csv
+  end
+end
+
+%% ==== Processes in user_filter ====
+subgraph T_user_filter ["user_filter"]
+  subgraph P_user_filter ["user_filter"]
+    S_../data/user.csv(["../data/user.csv"])
+    S_filter_users(["filter_users"])
+    S_../data/user.csv --> S_filter_users
+    S_filter_users --> S_../output/filtered_users.csv
+  end
+end
 ```
 
 ---
