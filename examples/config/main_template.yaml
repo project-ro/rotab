@@ -7,18 +7,18 @@ processes:
     description: Enrich user data with transaction details
     tables:
       - name: user
-        path: ../data/user.csv
+        path: ../output/filtered_users.csv
       - name: trans
-        path: ../data/transaction.csv
+        path: ../output/filtered_transactions.csv
     steps:
-      - name: filter_users
+      - name: filter_users_main
         with: user
         filter: age > 18
         define: |
           log_age = log(age)
           age_bucket = age // 10 * 10
         select: [user_id, log_age, age_bucket]
-      - name: filter_transactions
+      - name: filter_transactions_main
         with: trans
         filter: amount > 1000
       - name: merge_transactions

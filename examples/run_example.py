@@ -7,10 +7,12 @@ from rotab.core.pipeline import Pipeline
 
 here = Path(__file__).parent.resolve()
 
+
+# paths are relative to the current directory
 if __name__ == "__main__":
     pipeline = Pipeline.from_template_dir(
-        dirpath="./config",
-        define_func_paths=["../custom_functions/define_funcs.py"],
-        transform_func_paths=["../custom_functions/transform_funcs.py"],
+        dirpath="./examples/config",
+        define_func_paths=["./custom_functions/define_funcs.py"],
+        transform_func_paths=["./custom_functions/transform_funcs.py"],
     )
     pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True, dag=True)

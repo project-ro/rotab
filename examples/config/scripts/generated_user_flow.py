@@ -29,16 +29,16 @@ def step_summarize_transactions_trans_summary(trans):
     trans = trans[['user_id', 'amount', 'is_large']]
     return trans
 
-def step_filter_users_transaction_enrichment(user):
-    """Step: filter_users """
+def step_filter_users_main_transaction_enrichment(user):
+    """Step: filter_users_main """
     user = user.query('age > 18').copy()
     user.loc[:, 'log_age'] = user.apply(lambda row: log(row['age']), axis=1)
     user.loc[:, 'age_bucket'] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
     user = user[['user_id', 'log_age', 'age_bucket']]
     return user
 
-def step_filter_transactions_transaction_enrichment(trans):
-    """Step: filter_transactions """
+def step_filter_transactions_main_transaction_enrichment(trans):
+    """Step: filter_transactions_main """
     trans = trans.query('amount > 1000').copy()
     return trans
 
@@ -83,12 +83,12 @@ def process_trans_summary():
 def process_transaction_enrichment():
     """Enrich user data with transaction details"""
     # load tables
-    user = pd.read_csv(r'/home/yutaitatsu/rotab/examples/data/user.csv')
-    trans = pd.read_csv(r'/home/yutaitatsu/rotab/examples/data/transaction.csv')
+    user = pd.read_csv(r'/home/yutaitatsu/rotab/examples/output/filtered_users.csv')
+    trans = pd.read_csv(r'/home/yutaitatsu/rotab/examples/output/filtered_transactions.csv')
 
     # process steps
-    user = step_filter_users_transaction_enrichment(user)
-    trans = step_filter_transactions_transaction_enrichment(trans)
+    user = step_filter_users_main_transaction_enrichment(user)
+    trans = step_filter_transactions_main_transaction_enrichment(trans)
     enriched = step_merge_transactions_transaction_enrichment(merge, trans, user)
     enriched = step_enrich_transactions_transaction_enrichment(enriched)
 

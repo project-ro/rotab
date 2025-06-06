@@ -3,10 +3,13 @@ import subprocess
 import ast
 import glob
 import yaml
+import textwrap
 import re
 from pathlib import Path
 from typing import Dict, Any, List
 from rotab.core.operation import define_funcs, transform_funcs
+
+indent = "  "
 
 
 class RowExprTransformer(ast.NodeTransformer):
@@ -208,6 +211,11 @@ class Pipeline:
             proc_to_step.setdefault(proc_name, [])
             for tbl in proc.get("tables", []):
                 proc_to_step[proc_name].append(tbl["path"])
+            # for dump in proc.get("dumps", []):
+            #     return_var = dump.get("return")
+            #     output_path = dump.get("path")
+            #     if return_var and output_path:
+            #         proc_to_step[proc_name].append(output_path)
             for j, step in enumerate(proc.get("steps", [])):
                 step_name = step.get("name", f"step_{j}_{proc_name}")
                 proc_to_step[proc_name].append(step_name)
@@ -278,6 +286,8 @@ class Pipeline:
         template_to_process = {}
         process_to_step = {}
 
+        print("base_path:", self.base_path)
+
         templates = sorted(Path(self.base_path).glob("*.yaml"))
 
         assert templates, "No YAML templates found in the specified directory."
@@ -308,13 +318,92 @@ class Pipeline:
                 for v in v_list:
                     self._add_successor(step_successors, k, v)
 
-        return {
+        result = {
             "template_successors": template_successors,
             "process_successors": process_successors,
             "step_successors": step_successors,
             "template_to_process": template_to_process,
             "process_to_step": process_to_step,
         }
+
+        return result
+
+    def _get_dag_one_process(self, template_name, process_name, steps, step_successors):
+
+        print(f"Generating DAG for process: {process_name} in template: {template_name}")
+
+        lines_one_process = [textwrap.indent(f"""subgraph P_{process_name} ["{process_name}"]""", indent * 1)]
+
+        lines_nodes = [textwrap.indent(f"""S_{step}(["{step}"])""", indent * 2) for step in steps]
+        lines_edges = [
+            textwrap.indent(
+                f"""S_{step} --> S_{successor}""",
+                indent * 2,
+            )
+            for step, successors in step_successors.items()
+            for successor in successors
+        ]
+
+        print("lines_nodes:", lines_nodes)
+        print("lines_edges:", lines_edges)
+
+        lines_one_process.extend(lines_nodes)
+        lines_one_process.extend(lines_edges)
+        lines_one_process.append(textwrap.indent("end", indent * 1))
+
+        return lines_one_process
+
+    def generate_dag(self) -> str:
+
+        dependencies = self.get_dependencies()
+
+        print(dependencies)
+
+        template_successors = dependencies["template_successors"]
+        step_successors = dependencies["step_successors"]
+        template_to_process = dependencies["template_to_process"]
+        process_to_step = dependencies["process_to_step"]
+
+        # textwrap.indent("\n".join(lines), indent * level)
+
+        dag_lines = ["graph TB"]
+
+        # Template dependency
+        dag_lines.extend(["", """%% ==== Template dependencies ===="""])
+        lines_template_dependency = [
+            f"T_{template_name} --> T_{successor}"
+            for template_name, successors in template_successors.items()
+            for successor in successors
+        ]
+        dag_lines.extend(lines_template_dependency)
+
+        # Processes and steps dependency for each template
+        for template_name, process_names in template_to_process.items():
+            print("")
+            print(f"Processing template: {template_name}")
+            dag_lines.append("")
+            dag_lines.append(f"""%% ==== Processes in {template_name} ====""")
+            dag_lines.append(f"""subgraph T_{template_name.split(".")[0]} ["{template_name}"]""")
+            for process_name in process_names:
+                steps_one_process = process_to_step.get(process_name, [])
+
+                # BUG これだと、dumpも入ってしまう
+                step_successors_one_process = {step: step_successors.get(step, []) for step in steps_one_process}
+                print(f"Processing process: {process_name}")
+                print("steps_one_process:", steps_one_process)
+                print("step_successors_one_process:", step_successors_one_process)
+
+                if not steps_one_process:
+                    continue
+                dag_lines.extend(
+                    self._get_dag_one_process(
+                        template_name, process_name, steps_one_process, step_successors_one_process
+                    )
+                )
+
+            dag_lines.append("end")
+
+        return "\n".join(dag_lines)
 
     def run(self, script_path: str, execute: bool, dag: bool = False):
         abs_path = (
@@ -324,7 +413,7 @@ class Pipeline:
         if dag:
             base, _ = os.path.splitext(abs_path)
             mermaid_path = f"{base}.mmd"
-            mermaid_content = self.generate_mermaid()
+            mermaid_content = self.generate_dag()
             with open(mermaid_path, "w", encoding="utf-8") as f:
                 f.write(mermaid_content)
 
