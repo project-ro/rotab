@@ -3,7 +3,9 @@ import subprocess
 import ast
 import glob
 import yaml
-from typing import Dict, Any
+import re
+from pathlib import Path
+from typing import Dict, Any, List
 from rotab.core.operation import define_funcs, transform_funcs
 
 
@@ -22,7 +24,9 @@ class RowExprTransformer(ast.NodeTransformer):
 
 
 class Pipeline:
-    def __init__(self, config: Dict[str, Any], base_path: str, define_func_paths: list[str], transform_func_paths: list[str]):
+    def __init__(
+        self, config: Dict[str, Any], base_path: str, define_func_paths: list[str], transform_func_paths: list[str]
+    ):
         self.config = config
         self.base_path = base_path
         self.define_func_paths = define_func_paths
@@ -55,17 +59,19 @@ class Pipeline:
             "from rotab.core.operation.define_funcs import *",
             "from rotab.core.operation.transform_funcs import *",
             "import importlib.util",
-            "import os"
+            "import os",
         ]
         for path in self.define_func_paths + self.transform_func_paths:
             abs_path = os.path.abspath(path)
             module_name = os.path.splitext(os.path.basename(path))[0]
-            lines.extend([
-                f"spec = importlib.util.spec_from_file_location('{module_name}', r'{abs_path}')",
-                f"{module_name} = importlib.util.module_from_spec(spec)",
-                f"spec.loader.exec_module({module_name})",
-                f"globals().update({{k: v for k, v in {module_name}.__dict__.items() if callable(v) and not k.startswith('__')}})"
-            ])
+            lines.extend(
+                [
+                    f"spec = importlib.util.spec_from_file_location('{module_name}', r'{abs_path}')",
+                    f"{module_name} = importlib.util.module_from_spec(spec)",
+                    f"spec.loader.exec_module({module_name})",
+                    f"globals().update({{k: v for k, v in {module_name}.__dict__.items() if callable(v) and not k.startswith('__')}})",
+                ]
+            )
         return lines
 
     def generate_script(self) -> str:
@@ -104,16 +110,13 @@ class Pipeline:
                     step_funcs.append("\n".join(lines))
                     step_funcs.append("")
                     step_calls.append(f"    {var} = step_{step_name}_{process_name}({var})")
-                
+
                 elif "transform" in step:
                     assign = step["transform"]
                     lhs, rhs = map(str.strip, assign.split("=", 1))
                     try:
                         parsed = ast.parse(rhs, mode="eval")
-                        arg_names = sorted({
-                            node.id for node in ast.walk(parsed)
-                            if isinstance(node, ast.Name)
-                        })
+                        arg_names = sorted({node.id for node in ast.walk(parsed) if isinstance(node, ast.Name)})
                     except Exception:
                         raise ValueError(f"Cannot parse transform expression: {assign}")
 
@@ -121,7 +124,7 @@ class Pipeline:
                     lines = [
                         f"def step_{step_name}_{process_name}({', '.join(arg_names)}):",
                         f'    """Step: {step_name}"""',
-                        f"    return {rhs}"
+                        f"    return {rhs}",
                     ]
                     step_funcs.append("\n".join(lines))
                     step_funcs.append("")
@@ -144,23 +147,25 @@ class Pipeline:
             func_lines.append("\n    # dump output")
             for dump in process.get("dumps", []):
                 dfname, path = dump["return"], dump["path"]
-                func_lines.extend([
-                    f"    path = os.path.abspath(r'{path}')",
-                    "    os.makedirs(os.path.dirname(path), exist_ok=True)",
-                    f"    {dfname}.to_csv(path, index=False)"
-                ])
+                func_lines.extend(
+                    [
+                        f"    path = os.path.abspath(r'{path}')",
+                        "    os.makedirs(os.path.dirname(path), exist_ok=True)",
+                        f"    {dfname}.to_csv(path, index=False)",
+                    ]
+                )
 
             process_funcs.append("\n".join(func_lines))
             main_calls.append(f"process_{process_name}()")
 
         script_lines = (
             import_lines
-            + ["", ""] 
+            + ["", ""]
             + step_funcs
             + process_funcs
             + ["", "", "if __name__ == '__main__':"]
             + [f"    {call}" for call in main_calls]
-            )
+        )
         return "\n".join(script_lines)
 
     def write_script(self, path: str):
@@ -170,24 +175,166 @@ class Pipeline:
             f.write(self.generate_script())
 
     def execute_script(self, path: str):
-        subprocess.run(["python", path], cwd=self.base_path)
+        result = subprocess.run(["python", path], cwd=self.base_path, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Script failed:\n{result.stderr}")
 
-    def run(self, script_path: str, execute: bool):
+    def _add_successor(self, graph: Dict[str, List[str]], src: str, dst: str):
+        graph.setdefault(src, [])
+        if dst not in graph[src]:
+            graph[src].append(dst)
+
+    def _get_template_successors(self, cfg: Dict[str, Any], template_key: str) -> Dict[str, List[str]]:
+        result = {}
+        for dep in cfg.get("depends", []):
+            dep_key = dep.replace(".yaml", "")
+            self._add_successor(result, dep_key, template_key)
+        return result
+
+    def _get_process_successors(self, processes: List[Dict[str, Any]], template_key: str):
+        successors = {}
+        proc_names = []
+        proc_to_step = {}
+
+        for i, proc in enumerate(processes):
+            proc_name = proc.get("name", f"process_{i}_{template_key}")
+            proc_names.append(proc_name)
+
+            if i > 0:
+                prev_proc = processes[i - 1]
+                prev_proc_name = prev_proc.get("name", f"process_{i - 1}_{template_key}")
+                self._add_successor(successors, prev_proc_name, proc_name)
+
+            proc_to_step.setdefault(proc_name, [])
+            for tbl in proc.get("tables", []):
+                proc_to_step[proc_name].append(tbl["path"])
+            for j, step in enumerate(proc.get("steps", [])):
+                step_name = step.get("name", f"step_{j}_{proc_name}")
+                proc_to_step[proc_name].append(step_name)
+
+        return successors, proc_names, proc_to_step
+
+    def _get_step_successors(self, processes: List[Dict[str, Any]], template_key: str) -> Dict[str, List[str]]:
+        result = {}
+
+        for i, proc in enumerate(processes):
+            proc_name = proc.get("name", f"process_{i}_{template_key}")
+            steps = proc.get("steps", [])
+            tables = proc.get("tables", [])
+
+            for step_index, step in enumerate(steps):
+                step_name = step.get("name", f"step_{step_index}_{proc_name}")
+
+                if "transform" in step:
+                    rhs = step["transform"].split("=", 1)[-1].strip() if "=" in step["transform"] else ""
+                    used_vars = self._extract_variable_names(rhs)
+                    for var in used_vars:
+                        prev = self._find_prior_step_using_var(steps, step_index, var, proc_name, tables)
+                        if prev:
+                            self._add_successor(result, prev, step_name)
+
+                elif "with" in step:
+                    with_var = step["with"]
+                    prev = self._find_prior_step_using_var(steps, step_index, with_var, proc_name, tables)
+                    if prev:
+                        self._add_successor(result, prev, step_name)
+
+            for dump in proc.get("dumps", []):
+                return_var = dump.get("return")
+                output_path = dump.get("path")
+                if return_var and output_path:
+                    step_name = self._find_prior_step_using_var(steps, len(steps), return_var, proc_name, tables)
+                    if step_name:
+                        self._add_successor(result, step_name, output_path)
+
+        return result
+
+    def _find_prior_step_using_var(
+        self, steps: List[Dict[str, Any]], step_index: int, var: str, proc_name: str, tables: List[Dict[str, Any]]
+    ) -> str:
+        # steps内を逆順に検索
+        for k in range(step_index - 1, -1, -1):
+            prev = steps[k]
+            name = prev.get("name", f"step_{k}_{proc_name}")
+            if "with" in prev and prev["with"] == var:
+                return name
+            if "transform" in prev:
+                lhs = prev["transform"].split("=", 1)[0].strip()
+                if lhs == var:
+                    return name
+        # 見つからなければtablesから探す
+        for tbl in tables:
+            if tbl.get("name") == var:
+                return tbl.get("path")
+        return None
+
+    def _extract_variable_names(self, expr: str) -> List[str]:
+        return re.findall(r"\b\w+\b", expr)
+
+    def get_dependencies(self) -> Dict[str, Any]:
+        template_successors = {}
+        process_successors = {}
+        step_successors = {}
+        template_to_process = {}
+        process_to_step = {}
+
+        templates = sorted(Path(self.base_path).glob("*.yaml"))
+
+        assert templates, "No YAML templates found in the specified directory."
+
+        for path in templates:
+            template_name = path.name
+            template_key = template_name.replace(".yaml", "")
+            cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+            tmpl_succ = self._get_template_successors(cfg, template_key)
+            for k, v_list in tmpl_succ.items():
+                for v in v_list:
+                    self._add_successor(template_successors, k, v)
+
+            processes = cfg.get("processes", [])
+            proc_succ, proc_names, proc_to_step_map = self._get_process_successors(processes, template_key)
+
+            for k, v_list in proc_succ.items():
+                for v in v_list:
+                    self._add_successor(process_successors, k, v)
+
+            template_to_process[template_key] = proc_names
+            for proc, steps in proc_to_step_map.items():
+                process_to_step[proc] = steps
+
+            step_succ = self._get_step_successors(processes, template_key)
+            for k, v_list in step_succ.items():
+                for v in v_list:
+                    self._add_successor(step_successors, k, v)
+
+        return {
+            "template_successors": template_successors,
+            "process_successors": process_successors,
+            "step_successors": step_successors,
+            "template_to_process": template_to_process,
+            "process_to_step": process_to_step,
+        }
+
+    def run(self, script_path: str, execute: bool, dag: bool = False):
         abs_path = (
-            script_path if os.path.isabs(script_path)
-            else os.path.abspath(os.path.join(self.base_path, script_path))
+            script_path if os.path.isabs(script_path) else os.path.abspath(os.path.join(self.base_path, script_path))
         )
+
+        if dag:
+            base, _ = os.path.splitext(abs_path)
+            mermaid_path = f"{base}.mmd"
+            mermaid_content = self.generate_mermaid()
+            with open(mermaid_path, "w", encoding="utf-8") as f:
+                f.write(mermaid_content)
+
         self.write_script(abs_path)
+
         if execute:
             self.execute_script(abs_path)
 
     @classmethod
-    def from_template_dir(
-        cls,
-        dirpath: str,
-        define_func_paths: list[str],
-        transform_func_paths: list[str]
-        ):
+    def from_template_dir(cls, dirpath: str, define_func_paths: list[str], transform_func_paths: list[str]):
         templates = {}
         depends_graph = {}
 
@@ -230,5 +377,5 @@ class Pipeline:
             config=merged_config,
             base_path=dirpath,
             define_func_paths=define_func_paths,
-            transform_func_paths=transform_func_paths
+            transform_func_paths=transform_func_paths,
         )

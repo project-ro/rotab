@@ -11,6 +11,6 @@ if __name__ == "__main__":
     pipeline = Pipeline.from_template_dir(
         dirpath="./config",
         define_func_paths=["../custom_functions/define_funcs.py"],
-        transform_func_paths=["../custom_functions/transform_funcs.py"]
+        transform_func_paths=["../custom_functions/transform_funcs.py"],
     )
-    pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True)
+    pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True, dag=True)

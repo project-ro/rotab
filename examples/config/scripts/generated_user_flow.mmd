@@ -1,0 +1,44 @@
+graph TB
+
+%% ==== TEMPLATE間の依存 ====
+T_user_filter --> T_main_template
+T_trans_summary --> T_main_template
+
+%% ==== main_template.yaml ====
+subgraph T_main_template ["main_template.yaml"]
+    T_user_main_template_0["user"]
+    T_trans_main_template_1["trans"]
+    T_final_output_csv_out["../output/final_output.csv"]
+    subgraph P_transaction_enrichment ["transaction_enrichment"]
+        S1_main_template(["filter_users"])
+        S2_main_template(["filter_transactions"])
+        S3_main_template(["merge_transactions"])
+        S4_main_template(["enrich_transactions"])
+        T_user_main_template_0 --> S1_main_template
+        T_trans_main_template_1 --> S2_main_template
+        S3_main_template --> enriched -->
+        S4_main_template --> T_final_output_csv_out
+    end
+end
+
+%% ==== trans_summary.yaml ====
+subgraph T_trans_summary ["trans_summary.yaml"]
+    T_trans_trans_summary_0["trans"]
+    T_filtered_transactions_csv_out["../output/filtered_transactions.csv"]
+    subgraph P_trans_summary ["trans_summary"]
+        S1_trans_summary(["summarize_transactions"])
+        T_trans_trans_summary_0 --> S1_trans_summary
+        S1_trans_summary --> T_filtered_transactions_csv_out
+    end
+end
+
+%% ==== user_filter.yaml ====
+subgraph T_user_filter ["user_filter.yaml"]
+    T_user_user_filter_0["user"]
+    T_filtered_users_csv_out["../output/filtered_users.csv"]
+    subgraph P_user_filter ["user_filter"]
+        S1_user_filter(["filter_users"])
+        T_user_user_filter_0 --> S1_user_filter
+        S1_user_filter --> T_filtered_users_csv_out
+    end
+end
