@@ -32,34 +32,60 @@ This is the minimal system designed to realize that philosophy.
 ### Template Example (YAML)
 
 ```yaml
-depends: # optional
-  - some_template.yaml
+depends:
+  - user_filter.yaml
+  - trans_summary.yaml
 
 processes:
   - name: transaction_enrichment
     description: Enrich user data with transaction details
     tables:
       - name: user
-        path: ../data/user.csv
+        path: ../../output/filtered_users.csv
       - name: trans
-        path: ../data/transaction.csv
+        path: ../../output/filtered_transactions.csv
     steps:
-      - with: user
-        filter: age > 18
-        define: |
+      - name: filter_users_main
+        with: user
+        filter: age > ${params.min_age}
+        new_columns: |
           log_age = log(age)
           age_bucket = age // 10 * 10
-        select: [user_id, log_age, age_bucket]
-      - with: trans
+        columns: [user_id, log_age, age_bucket]
+      - name: filter_transactions_main
+        with: trans
         filter: amount > 1000
-      - transform: enriched = merge(left=user, right=trans, on='user_id')
-      - with: enriched
-        define: high_value = amount > 10000
-        select: [user_id, log_age, amount, high_value]
+      - name: merge_transactions
+        dataframes: enriched = merge(left=user, right=trans, on='user_id')
+      - name: enrich_transactions
+        with: enriched
+        new_columns: high_value = amount > 10000
+        columns: ${params.enrich_transactions.columns}
     dumps:
       - return: enriched
-        path: ../output/final_output.csv
+        path: ../../output/final_output.csv
 ```
+
+### Paramete Injection
+
+You can inject values from a parameter YAML file using the ${...} syntax inside your templates.
+The parameter file must be explicitly specified via param_path when loading templates.
+
+For example:
+
+```yaml
+filter: age > ${params.min_age}
+```
+
+The value will be replaced by the corresponding entry in your parameter file, such as:
+
+```yaml
+# params.yaml
+params:
+  min_age: 18
+```
+
+This allows dynamic and reusable templates by separating logic from configuration.
 
 ### Running the Pipeline
 
@@ -67,9 +93,10 @@ processes:
 from rotab.core.pipeline import Pipeline
 
 pipeline = Pipeline.from_template_dir(
-        dirpath="./examples/config",
-        define_func_paths=["./custom_functions/define_funcs.py"],
-        transform_func_paths=["./custom_functions/transform_funcs.py"],
+        dirpath="./examples/config/templates",
+        param_path="./examples/config/params/params.yaml",
+        new_columns_func_paths=["./custom_functions/new_columns_funcs.py"],
+        dataframes_func_paths=["./custom_functions/dataframes_funcs.py"],
     )
 pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True, dag=True)
 ```
