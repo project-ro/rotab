@@ -72,8 +72,15 @@ class ScriptGenerator:
                     local_vars.add(var)
                     lines = [f"def step_{step_name}_{process_name}({var}):"]
                     body = [f'"""Step: {step_name} """']
+
+                    if "as" in step:
+                        var_result = step["as"]
+                        body.append(f"{var_result} = {var}.copy()")
+                    else:
+                        var_result = var
+
                     if "filter" in step:
-                        body.append(f"{var} = {var}.query('{step['filter']}').copy()")
+                        body.append(f"{var_result} = {var}.query('{step['filter']}')")
 
                     if "new_columns" in step:
                         for line in step["new_columns"].split("\n"):
@@ -83,16 +90,18 @@ class ScriptGenerator:
                                     rhs_transformed = VariableToRowTransformer.transform(rhs)
                                 except Exception as e:
                                     raise ValueError(f"Failed to parse RHS expression: {rhs!r}\n{e}")
-                                body.append(f'{var}["{lhs}"] = {var}.apply(lambda row: {rhs_transformed}, axis=1)')
+                                body.append(
+                                    f'{var_result}["{lhs}"] = {var}.apply(lambda row: {rhs_transformed}, axis=1)'
+                                )
 
                     if "columns" in step and "new_columns" not in step:
                         cols = step["columns"]
-                        body.append(f"{var} = {var}[{cols}]")
-                    body.append(f"return {var}")
+                        body.append(f"{var_result} = {var}[{cols}]")
+                    body.append(f"return {var_result}")
                     lines.extend([textwrap.indent(line, INDENT) for line in body])
                     step_funcs.append("\n".join(lines))
                     step_funcs.extend(["", ""])
-                    call_line = f"{var} = step_{step_name}_{process_name}({var})"
+                    call_line = f"{var_result} = step_{step_name}_{process_name}({var})"
                     step_calls.append(textwrap.indent(call_line, INDENT))
 
                 elif "dataframes" in step:
@@ -107,8 +116,10 @@ class ScriptGenerator:
                     lines = [
                         f"def step_{step_name}_{process_name}({', '.join(arg_names)}):",
                         textwrap.indent(f'"""Step: {step_name}"""', INDENT),
-                        textwrap.indent(f"return {rhs}", INDENT),
                     ]
+
+                    lines.append(textwrap.indent(f"return {rhs}", INDENT))
+
                     step_funcs.append("\n".join(lines))
                     step_funcs.append("")
                     call_line = f"{lhs} = step_{step_name}_{process_name}({', '.join(arg_names)})"

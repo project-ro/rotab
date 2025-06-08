@@ -1,4 +1,5 @@
 params:
+  test: true
   min_age: 18
   enrich_transactions:
     columns:

@@ -7,14 +7,18 @@ processes:
     description: Enrich user data with transaction details
     tables:
       - name: user
+        when: ${params.test}
         path: ../../output/filtered_users.csv
         schema: ${schema.user.columns}
       - name: trans
+        when: ${params.test}
         path: ../../output/filtered_transactions.csv
         schema: ${schema.trans.columns}
     steps:
       - name: filter_users_main
+        when: ${params.test}
         with: user
+        as: filtered_users
         filter: age > ${params.min_age}
         new_columns: |
           log_age = log(age)
@@ -24,12 +28,14 @@ processes:
         with: trans
         filter: amount > 1000
       - name: merge_transactions
-        dataframes: enriched = merge(left=user, right=trans, on='user_id')
+        when: ${params.test}
+        dataframes: enriched = merge(left=filtered_users, right=trans, on='user_id')
       - name: enrich_transactions
         with: enriched
         new_columns: high_value = amount > 10000
         columns: ${params.enrich_transactions.columns}
     dumps:
-      - return: enriched
+      - when: ${params.test}
+        return: enriched
         path: ../../output/final_output.csv
         schema: ${schema.enriched.columns}

@@ -9,46 +9,46 @@ from typing import Dict
 
 
 @pytest.mark.parametrize(
-    "df,schema,expect_error,match",
+    "df,columns,expect_error,match",
     [
         (
             pd.DataFrame({"user_id": [1, 2, 3], "age": [25, 35, 45]}),
-            {"columns": [{"name": "user_id", "type": "int"}, {"name": "age", "type": "int"}]},
+            [{"name": "user_id", "dtype": "int"}, {"name": "age", "dtype": "int"}],
             False,
             None,
         ),
         (
             pd.DataFrame({"user_id": [1, 2, 3]}),
-            {"columns": [{"name": "user_id", "type": "int"}, {"name": "age", "type": "int"}]},
+            [{"name": "user_id", "dtype": "int"}, {"name": "age", "dtype": "int"}],
             True,
-            "Missing required column: age",
+            r"Missing required column: age",
         ),
         (
             pd.DataFrame({"user_id": [1, 2, 3], "age": ["25", "35", "45"]}),
-            {"columns": [{"name": "user_id", "type": "int"}, {"name": "age", "type": "int"}]},
+            [{"name": "user_id", "dtype": "int"}, {"name": "age", "dtype": "int"}],
             True,
-            "Type mismatch for column 'age'",
+            r"Type mismatch for column 'age'",
         ),
         (
             pd.DataFrame({"user_id": [1, 2, 3], "age": [25, 35, 45]}),
-            {"columns": "not a list"},
+            "not a list",
             True,
-            "Invalid schema: 'columns' must be a list of dicts",
+            r"Invalid schema: 'columns' must be a list of dicts",
         ),
         (
             pd.DataFrame({"age": [25, 35, 45]}),
-            {"columns": [{"name": "age", "type": "datetime"}]},
+            [{"name": "age", "dtype": "notarealtype"}],
             True,
-            "Unsupported type in schema: datetime for column: age",
+            r"Unsupported type in schema: notarealtype for column: age",
         ),
     ],
 )
-def test_validate_table_schema_parametrized(df: pd.DataFrame, schema: Dict, expect_error: bool, match: str):
+def test_validate_table_schema_parametrized(df: pd.DataFrame, columns: any, expect_error: bool, match: str):
     if expect_error:
         with pytest.raises(ValueError, match=match):
-            validate_table_schema(df, schema)
+            validate_table_schema(df, columns)
     else:
-        assert validate_table_schema(df, schema) is True
+        assert validate_table_schema(df, columns) is True
 
 
 def test_sort_by():

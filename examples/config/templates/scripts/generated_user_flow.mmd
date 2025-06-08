@@ -15,7 +15,6 @@ subgraph T_main_template ["main_template"]
     S_enrich_transactions(["enrich_transactions"])
     S_../../output/filtered_users.csv --> S_filter_users_main
     S_../../output/filtered_transactions.csv --> S_filter_transactions_main
-    S_filter_users_main --> S_merge_transactions
     S_filter_transactions_main --> S_merge_transactions
     S_merge_transactions --> S_enrich_transactions
     S_enrich_transactions --> S_../../output/final_output.csv
