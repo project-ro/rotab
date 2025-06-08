@@ -18,13 +18,13 @@ from rotab.core.operation.validator import TemplateValidator
         ("x = y = 1", True),
     ],
 )
-def test_define_cases(step, expect_error):
+def test_new_columns_cases(step, expect_error):
     cfg = {
         "processes": [
             {
                 "process": "p",
                 "tables": [{"name": "user", "path": "x.csv"}],
-                "steps": [{"with": "user", "define": step}],
+                "steps": [{"with": "user", "new_columns": step}],
                 "dumps": [{"return": "user", "path": "y.csv"}],
             }
         ]
@@ -45,13 +45,13 @@ def test_define_cases(step, expect_error):
         ("result = merge(left='a', right='b', on='id')", False),
     ],
 )
-def test_transform_cases(step, expect_error):
+def test_dataframes_cases(step, expect_error):
     cfg = {
         "processes": [
             {
                 "process": "p",
                 "tables": [{"name": "user", "path": "x.csv"}],
-                "steps": [{"transform": step}],
+                "steps": [{"dataframes": step}],
                 "dumps": [{"return": "user", "path": "y.csv"}],
             }
         ]
@@ -67,10 +67,10 @@ def test_transform_cases(step, expect_error):
 @pytest.mark.parametrize(
     "step, expect_error",
     [
-        ({"define": "a = 1", "transform": "b = log(1)"}, True),
+        ({"new_columns": "a = 1", "dataframes": "b = log(1)"}, True),
     ],
 )
-def test_define_and_transform_conflict(step, expect_error):
+def test_new_columns_and_dataframes_conflict(step, expect_error):
     cfg = {
         "processes": [
             {
@@ -120,7 +120,7 @@ def test_duplicate_dump_returns(dumps, expect_error):
             {
                 "process": "p",
                 "tables": [{"name": "x", "path": "x.csv"}],
-                "steps": [{"transform": "x = log(1)"}],
+                "steps": [{"dataframes": "x = log(1)"}],
                 "dumps": dumps,
             }
         ]
@@ -155,10 +155,10 @@ def test_path_invalid_chars_case(path1, path2, expect_error):
 @pytest.mark.parametrize(
     "step, expect_error",
     [
-        ({"with": "x", "select": ["undefined_column"]}, False),
+        ({"with": "x", "columns": ["undefined_column"]}, False),
     ],
 )
-def test_select_with_undefined_column_case(step, expect_error):
+def test_columns_with_undefined_column_case(step, expect_error):
     cfg = {
         "processes": [
             {
@@ -171,7 +171,7 @@ def test_select_with_undefined_column_case(step, expect_error):
     }
     validator = TemplateValidator(cfg)
     validator.validate()
-    assert expect_error == any("select" in e.message.lower() for e in validator.errors)
+    assert expect_error == any("columns" in e.message.lower() for e in validator.errors)
 
 
 @pytest.mark.parametrize(

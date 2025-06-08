@@ -7,26 +7,26 @@ processes:
     description: Enrich user data with transaction details
     tables:
       - name: user
-        path: ../output/filtered_users.csv
+        path: ../../output/filtered_users.csv
       - name: trans
-        path: ../output/filtered_transactions.csv
+        path: ../../output/filtered_transactions.csv
     steps:
       - name: filter_users_main
         with: user
         filter: age > ${params.min_age}
-        define: |
+        new_columns: |
           log_age = log(age)
           age_bucket = age // 10 * 10
-        select: [user_id, log_age, age_bucket]
+        columns: [user_id, log_age, age_bucket]
       - name: filter_transactions_main
         with: trans
         filter: amount > 1000
       - name: merge_transactions
-        transform: enriched = merge(left=user, right=trans, on='user_id')
+        dataframes: enriched = merge(left=user, right=trans, on='user_id')
       - name: enrich_transactions
         with: enriched
-        define: high_value = amount > 10000
-        select: ${params.enrich_transactions.columns}
+        new_columns: high_value = amount > 10000
+        columns: ${params.enrich_transactions.columns}
     dumps:
       - return: enriched
-        path: ../output/final_output.csv
+        path: ../../output/final_output.csv

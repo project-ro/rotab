@@ -6,8 +6,8 @@ import os
 import inspect
 import keyword
 import importlib.util
-import rotab.core.operation.define_funcs as define_funcs
-import rotab.core.operation.transform_funcs as transform_funcs
+import rotab.core.operation.new_columns_funcs as new_columns_funcs
+import rotab.core.operation.dataframes_funcs as dataframes_funcs
 
 
 class ValidationError:
@@ -24,7 +24,7 @@ class TemplateValidator:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.errors: List[ValidationError] = []
-        self.allowed_top_keys = {"processes",  "depends"}
+        self.allowed_top_keys = {"processes", "depends"}
         self.required_keys = {"process", "tables", "steps", "dumps"}
         self.optional_keys = {"description"}
         self.eval_scope = self._build_eval_scope()
@@ -49,18 +49,18 @@ class TemplateValidator:
 
     def _build_eval_scope(self) -> Dict[str, Any]:
         scope = {}
-        for module in [define_funcs, transform_funcs]:
+        for module in [new_columns_funcs, dataframes_funcs]:
             scope.update({k: v for k, v in module.__dict__.items() if not k.startswith("__") and callable(v)})
         scope.update({k: v for k, v in builtins.__dict__.items() if callable(v)})
 
         # Load custom functions from specified paths
         custom_conf = self.config.get("custom_functions", {})
-        define_paths = custom_conf.get("define_funcs", [])
-        transform_paths = custom_conf.get("transform_funcs", [])
-        if define_paths:
-            scope.update(self._load_functions_from_paths(define_paths))
-        if transform_paths:
-            scope.update(self._load_functions_from_paths(transform_paths))
+        new_columns_paths = custom_conf.get("new_columns_funcs", [])
+        dataframes_paths = custom_conf.get("dataframes_funcs", [])
+        if new_columns_paths:
+            scope.update(self._load_functions_from_paths(new_columns_paths))
+        if dataframes_paths:
+            scope.update(self._load_functions_from_paths(dataframes_paths))
         return scope
 
     def validate(self):
@@ -87,10 +87,10 @@ class TemplateValidator:
                 if not isinstance(path, str):
                     self.errors.append(ValidationError(f"config.depends", "`depends` values must be a string."))
                     continue
-    
+
     def _validate_process(self, proc: Dict[str, Any], path: str):
         seen_table_names = set()  # 🔁 各 process ごとに初期化
-        
+
         missing_keys = self.required_keys - proc.keys()
         for key in missing_keys:
             self.errors.append(ValidationError(path, f"Missing required key: `{key}`"))
@@ -134,7 +134,6 @@ class TemplateValidator:
                 else:
                     seen_names.add(name)
 
-
     def _validate_steps(self, steps: Any, table_names: set, path: str):
         if not isinstance(steps, list):
             self.errors.append(ValidationError(path, "`steps` must be a list."))
@@ -149,16 +148,16 @@ class TemplateValidator:
 
             self._validate_with(step, defined_vars, p)
             self._validate_filter(step, p)
-            self._validate_define_and_transform_exclusive(step, p)
+            self._validate_new_columns_and_dataframes_exclusive(step, p)
 
-            if "define" in step:
-                self._validate_define(step["define"], defined_vars, p)
+            if "new_columns" in step:
+                self._validate_new_columns(step["new_columns"], defined_vars, p)
 
-            if "transform" in step:
-                self._validate_transform(step["transform"], defined_vars, p)
+            if "dataframes" in step:
+                self._validate_dataframes(step["dataframes"], defined_vars, p)
 
-            if "select" in step and not isinstance(step["select"], list):
-                self.errors.append(ValidationError(f"{p}.select", "`select` must be a list."))
+            if "columns" in step and not "new_columns" in step and not isinstance(step["columns"], list):
+                self.errors.append(ValidationError(f"{p}.columns", "`columns` must be a list."))
 
     def _validate_with(self, step: dict, defined_vars: set, path: str):
         if "with" in step:
@@ -178,62 +177,64 @@ class TemplateValidator:
             except Exception:
                 self.errors.append(ValidationError(f"{path}.filter", "Invalid boolean expression."))
 
-    def _validate_define_and_transform_exclusive(self, step: dict, path: str):
-        if "define" in step and "transform" in step:
-            self.errors.append(ValidationError(path, "Cannot use both `define` and `transform` in the same step."))
+    def _validate_new_columns_and_dataframes_exclusive(self, step: dict, path: str):
+        if "new_columns" in step and "dataframes" in step:
+            self.errors.append(
+                ValidationError(path, "Cannot use both `new_columns` and `dataframes` in the same step.")
+            )
 
-    def _validate_define(self, define_block: str, defined_vars: set, path: str):
-        for line in define_block.split("\n"):
+    def _validate_new_columns(self, new_columns_block: str, defined_vars: set, path: str):
+        for line in new_columns_block.split("\n"):
             if not line.strip():
                 continue
             if line.count("=") != 1 or "==" in line:
-                self.errors.append(ValidationError(f"{path}.define", f"Invalid assignment syntax: {line.strip()}"))
+                self.errors.append(ValidationError(f"{path}.new_columns", f"Invalid assignment syntax: {line.strip()}"))
                 continue
             lhs, rhs = map(str.strip, line.split("=", 1))
             if keyword.iskeyword(lhs):
-                self.errors.append(ValidationError(f"{path}.define", f"`{lhs}` is a reserved keyword."))
+                self.errors.append(ValidationError(f"{path}.new_columns", f"`{lhs}` is a reserved keyword."))
             try:
                 expr = ast.parse(rhs, mode="eval")
                 if isinstance(expr.body, ast.Call):
                     func = self._get_func_name(expr.body.func)
                     if not func:
-                        self.errors.append(ValidationError(f"{path}.define", "Unsupported function call format."))
+                        self.errors.append(ValidationError(f"{path}.new_columns", "Unsupported function call format."))
                     elif func in {"eval", "exec", "compile", "open", "__import__"}:
-                        self.errors.append(ValidationError(f"{path}.define", f"Forbidden function `{func}` used."))
+                        self.errors.append(ValidationError(f"{path}.new_columns", f"Forbidden function `{func}` used."))
                     elif func not in self.eval_scope:
-                        self.errors.append(ValidationError(f"{path}.define", f"Function `{func}` not found."))
+                        self.errors.append(ValidationError(f"{path}.new_columns", f"Function `{func}` not found."))
                     else:
-                        self._check_function_signature(func, expr.body.args, expr.body.keywords, f"{path}.define")
+                        self._check_function_signature(func, expr.body.args, expr.body.keywords, f"{path}.new_columns")
                 elif isinstance(expr.body, ast.Assign):
-                    self.errors.append(ValidationError(f"{path}.define", "Multiple assignment not allowed."))
+                    self.errors.append(ValidationError(f"{path}.new_columns", "Multiple assignment not allowed."))
             except Exception:
-                self.errors.append(ValidationError(f"{path}.define", f"Invalid expression on RHS: {rhs}"))
+                self.errors.append(ValidationError(f"{path}.new_columns", f"Invalid expression on RHS: {rhs}"))
             defined_vars.add(lhs)
 
-    def _validate_transform(self, transform_expr: str, defined_vars: set, path: str):
-        if "=" not in transform_expr:
-            self.errors.append(ValidationError(f"{path}.transform", "Transform must contain '='."))
+    def _validate_dataframes(self, dataframes_expr: str, defined_vars: set, path: str):
+        if "=" not in dataframes_expr:
+            self.errors.append(ValidationError(f"{path}.dataframes", "dataframes must contain '='."))
             return
-        lhs, rhs = map(str.strip, transform_expr.split("=", 1))
+        lhs, rhs = map(str.strip, dataframes_expr.split("=", 1))
         if keyword.iskeyword(lhs):
-            self.errors.append(ValidationError(f"{path}.transform", f"`{lhs}` is a reserved keyword."))
+            self.errors.append(ValidationError(f"{path}.dataframes", f"`{lhs}` is a reserved keyword."))
         try:
             expr = ast.parse(rhs, mode="eval")
             if not isinstance(expr.body, ast.Call):
-                self.errors.append(ValidationError(f"{path}.transform", f"RHS must be a function call: {rhs}"))
+                self.errors.append(ValidationError(f"{path}.dataframes", f"RHS must be a function call: {rhs}"))
                 return
             func = self._get_func_name(expr.body.func)
             if not func:
-                self.errors.append(ValidationError(f"{path}.transform", "Unsupported function call format."))
+                self.errors.append(ValidationError(f"{path}.dataframes", "Unsupported function call format."))
             elif func in {"eval", "exec", "compile", "open", "__import__"}:
-                self.errors.append(ValidationError(f"{path}.transform", f"Forbidden function `{func}` used."))
+                self.errors.append(ValidationError(f"{path}.dataframes", f"Forbidden function `{func}` used."))
             elif func not in self.eval_scope:
-                self.errors.append(ValidationError(f"{path}.transform", f"Function `{func}` not found."))
+                self.errors.append(ValidationError(f"{path}.dataframes", f"Function `{func}` not found."))
             else:
-                self._check_function_signature(func, expr.body.args, expr.body.keywords, f"{path}.transform")
+                self._check_function_signature(func, expr.body.args, expr.body.keywords, f"{path}.dataframes")
             defined_vars.add(lhs)
         except Exception:
-            self.errors.append(ValidationError(f"{path}.transform", f"Invalid function call: {rhs}"))
+            self.errors.append(ValidationError(f"{path}.dataframes", f"Invalid function call: {rhs}"))
 
     def _get_func_name(self, func_expr):
         if isinstance(func_expr, ast.Name):
@@ -296,8 +297,8 @@ class TemplateValidator:
             return
         valid_returns = {t["name"] for t in proc.get("tables", []) if isinstance(t, dict)}
         for step in proc.get("steps", []):
-            if "transform" in step:
-                lhs = step["transform"].split("=", 1)[0].strip()
+            if "dataframes" in step:
+                lhs = step["dataframes"].split("=", 1)[0].strip()
                 valid_returns.add(lhs)
         for i, dump in enumerate(dumps):
             p = f"{path}[{i}]"
@@ -307,7 +308,7 @@ class TemplateValidator:
             if dump["return"] not in valid_returns:
                 self.errors.append(
                     ValidationError(
-                        f"{p}.return", f"`return` must be in defined tables or transform results: `{dump['return']}`"
+                        f"{p}.return", f"`return` must be in defined tables or dataframes results: `{dump['return']}`"
                     )
                 )
             if not isinstance(dump["path"], str):

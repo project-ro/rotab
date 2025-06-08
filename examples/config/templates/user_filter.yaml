@@ -3,13 +3,13 @@ processes:
     description: Filter users under 30
     tables:
       - name: user
-        path: ../data/user.csv
+        path: ../../data/user.csv
     steps:
       - name: filter_users
         with: user
         filter: age < 30
-        define: age_group = age // 10
-        select: [user_id, age, age_group]
+        new_columns: age_group = age // 10
+        columns: [user_id, age, age_group]
     dumps:
       - return: user
-        path: ../output/filtered_users.csv
+        path: ../../output/filtered_users.csv

@@ -7,7 +7,7 @@ import textwrap
 import re
 from pathlib import Path
 from typing import Dict, Any, List
-from rotab.core.operation import define_funcs, transform_funcs
+from rotab.core.operation import new_columns_funcs, dataframes_funcs
 
 indent = "  "
 
@@ -28,14 +28,18 @@ class RowExprTransformer(ast.NodeTransformer):
 
 class Pipeline:
     def __init__(
-        self, config: Dict[str, Any], base_path: str, define_func_paths: list[str], transform_func_paths: list[str]
+        self,
+        config: Dict[str, Any],
+        base_path: str,
+        new_columns_func_paths: list[str],
+        dataframes_func_paths: list[str],
     ):
         self.config = config
         self.base_path = base_path
-        self.define_func_paths = define_func_paths
-        self.transform_func_paths = transform_func_paths
+        self.new_columns_func_paths = new_columns_func_paths
+        self.dataframes_func_paths = dataframes_func_paths
         self.eval_scope = {}
-        for module in [define_funcs, transform_funcs]:
+        for module in [new_columns_funcs, dataframes_funcs]:
             self.eval_scope.update({k: v for k, v in module.__dict__.items() if not k.startswith("__") and callable(v)})
         self.eval_scope.update(__builtins__)
 
@@ -59,12 +63,12 @@ class Pipeline:
     def _get_common_import_lines(self) -> list[str]:
         lines = [
             "import pandas as pd",
-            "from rotab.core.operation.define_funcs import *",
-            "from rotab.core.operation.transform_funcs import *",
+            "from rotab.core.operation.new_columns_funcs import *",
+            "from rotab.core.operation.dataframes_funcs import *",
             "import importlib.util",
             "import os",
         ]
-        for path in self.define_func_paths + self.transform_func_paths:
+        for path in self.new_columns_func_paths + self.dataframes_func_paths:
             abs_path = os.path.abspath(path)
             module_name = os.path.splitext(os.path.basename(path))[0]
             lines.extend(
@@ -100,28 +104,28 @@ class Pipeline:
                     lines.append(f'    """Step: {step_name} """')
                     if "filter" in step:
                         lines.append(f"    {var} = {var}.query('{step['filter']}').copy()")
-                    if "define" in step:
-                        for line in step["define"].split("\n"):
+                    if "new_columns" in step:
+                        for line in step["new_columns"].split("\n"):
                             if line.strip():
                                 lhs, rhs = map(str.strip, line.split("=", 1))
                                 lambda_expr = self._to_lambda_expr(rhs)
                                 lines.append(f"    {var}.loc[:, '{lhs}'] = {var}.apply({lambda_expr}, axis=1)")
-                    if "select" in step:
-                        cols = step["select"]
+                    if "columns" in step and "new_columns" not in step:
+                        cols = step["columns"]
                         lines.append(f"    {var} = {var}[{cols}]")
                     lines.append(f"    return {var}")
                     step_funcs.append("\n".join(lines))
                     step_funcs.append("")
                     step_calls.append(f"    {var} = step_{step_name}_{process_name}({var})")
 
-                elif "transform" in step:
-                    assign = step["transform"]
+                elif "dataframes" in step:
+                    assign = step["dataframes"]
                     lhs, rhs = map(str.strip, assign.split("=", 1))
                     try:
                         parsed = ast.parse(rhs, mode="eval")
                         arg_names = sorted({node.id for node in ast.walk(parsed) if isinstance(node, ast.Name)})
                     except Exception:
-                        raise ValueError(f"Cannot parse transform expression: {assign}")
+                        raise ValueError(f"Cannot parse dataframes expression: {assign}")
 
                     step_calls.append(f"    {lhs} = step_{step_name}_{process_name}({', '.join(arg_names)})")
                     lines = [
@@ -233,8 +237,8 @@ class Pipeline:
             for step_index, step in enumerate(steps):
                 step_name = step.get("name", f"step_{step_index}_{proc_name}")
 
-                if "transform" in step:
-                    rhs = step["transform"].split("=", 1)[-1].strip() if "=" in step["transform"] else ""
+                if "dataframes" in step:
+                    rhs = step["dataframes"].split("=", 1)[-1].strip() if "=" in step["dataframes"] else ""
                     used_vars = self._extract_variable_names(rhs)
                     for var in used_vars:
                         prev = self._find_prior_step_using_var(steps, step_index, var, proc_name, tables)
@@ -266,8 +270,8 @@ class Pipeline:
             name = prev.get("name", f"step_{k}_{proc_name}")
             if "with" in prev and prev["with"] == var:
                 return name
-            if "transform" in prev:
-                lhs = prev["transform"].split("=", 1)[0].strip()
+            if "dataframes" in prev:
+                lhs = prev["dataframes"].split("=", 1)[0].strip()
                 if lhs == var:
                     return name
         # 見つからなければtablesから探す
@@ -414,6 +418,7 @@ class Pipeline:
             base, _ = os.path.splitext(abs_path)
             mermaid_path = f"{base}.mmd"
             mermaid_content = self.generate_dag()
+            os.makedirs(os.path.dirname(mermaid_path), exist_ok=True)
             with open(mermaid_path, "w", encoding="utf-8") as f:
                 f.write(mermaid_content)
 
@@ -427,8 +432,8 @@ class Pipeline:
         cls,
         dirpath: str,
         param_path: str,
-        define_func_paths: list[str],
-        transform_func_paths: list[str],
+        new_columns_func_paths: list[str],
+        dataframes_func_paths: list[str],
     ):
         params = cls._load_params(param_path)
         templates = cls._load_templates_with_render(dirpath, params)
@@ -441,8 +446,8 @@ class Pipeline:
         return cls(
             config=merged_config,
             base_path=dirpath,
-            define_func_paths=define_func_paths,
-            transform_func_paths=transform_func_paths,
+            new_columns_func_paths=new_columns_func_paths,
+            dataframes_func_paths=dataframes_func_paths,
         )
 
     @staticmethod

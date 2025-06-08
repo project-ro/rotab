@@ -1,7 +1,7 @@
 import pytest
 import math
 import datetime
-from rotab.core.operation.define_funcs import *
+from rotab.core.operation.new_columns_funcs import *
 
 
 def test_log():
