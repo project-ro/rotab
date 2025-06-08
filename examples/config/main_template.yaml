@@ -13,7 +13,7 @@ processes:
     steps:
       - name: filter_users_main
         with: user
-        filter: age > 18
+        filter: age > ${params.min_age}
         define: |
           log_age = log(age)
           age_bucket = age // 10 * 10
@@ -26,7 +26,7 @@ processes:
       - name: enrich_transactions
         with: enriched
         define: high_value = amount > 10000
-        select: [user_id, log_age, amount, high_value]
+        select: ${params.enrich_transactions.columns}
     dumps:
       - return: enriched
         path: ../output/final_output.csv

@@ -423,19 +423,63 @@ class Pipeline:
             self.execute_script(abs_path)
 
     @classmethod
-    def from_template_dir(cls, dirpath: str, define_func_paths: list[str], transform_func_paths: list[str]):
-        templates = {}
-        depends_graph = {}
+    def from_template_dir(
+        cls,
+        dirpath: str,
+        param_path: str,
+        define_func_paths: list[str],
+        transform_func_paths: list[str],
+    ):
+        params = cls._load_params(param_path)
+        templates = cls._load_templates_with_render(dirpath, params)
+        resolved_order = cls._toposort_templates(templates)
 
-        # read all YAML files in the directory
+        merged_config = {"processes": []}
+        for name in resolved_order:
+            merged_config["processes"].extend(templates[name].get("processes", []))
+
+        return cls(
+            config=merged_config,
+            base_path=dirpath,
+            define_func_paths=define_func_paths,
+            transform_func_paths=transform_func_paths,
+        )
+
+    @staticmethod
+    def _load_params(param_path: str) -> dict:
+        with open(param_path, "r") as f:
+            return yaml.safe_load(f) or {}
+
+    @staticmethod
+    def _render_placeholders(template_str: str, params: dict) -> str:
+        def resolve(expr: str):
+            keys = expr.split(".")
+            val = params
+            for key in keys:
+                if not isinstance(val, dict) or key not in val:
+                    raise KeyError(f"Parameter `{expr}` not found.")
+                val = val[key]
+            return str(val)
+
+        pattern = r"\$\{([a-zA-Z0-9_.]+)\}"  # Match ${param} or ${nested.param}
+        return re.sub(pattern, lambda m: resolve(m.group(1)), template_str)
+
+    @staticmethod
+    def _load_templates_with_render(dirpath: str, params: dict) -> dict:
+        templates = {}
         for filepath in glob.glob(os.path.join(dirpath, "*.yaml")):
             with open(filepath, "r") as f:
-                cfg = yaml.safe_load(f) or {}
+                content = f.read()
+                rendered = Pipeline._render_placeholders(content, params)
+                cfg = yaml.safe_load(rendered) or {}
             name = os.path.basename(filepath)
             templates[name] = cfg
-            depends_graph[name] = cfg.get("depends", [])
 
-        # topological sort to resolve dependencies
+        return templates
+
+    @staticmethod
+    def _toposort_templates(templates: dict[str, dict]) -> list[str]:
+        graph = {name: cfg.get("depends", []) for name, cfg in templates.items()}
         resolved = []
         visited = set()
         temp = set()
@@ -446,7 +490,7 @@ class Pipeline:
             if name in temp:
                 raise ValueError(f"Circular dependency detected at {name}")
             temp.add(name)
-            for dep in depends_graph.get(name, []):
+            for dep in graph.get(name, []):
                 visit(dep)
             temp.remove(name)
             visited.add(name)
@@ -455,16 +499,4 @@ class Pipeline:
         for name in templates:
             visit(name)
 
-        merged_config = {
-            "processes": [],
-        }
-
-        for name in resolved:
-            merged_config["processes"].extend(templates[name].get("processes", []))
-
-        return cls(
-            config=merged_config,
-            base_path=dirpath,
-            define_func_paths=define_func_paths,
-            transform_func_paths=transform_func_paths,
-        )
+        return resolved

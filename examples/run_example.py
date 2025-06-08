@@ -12,6 +12,7 @@ here = Path(__file__).parent.resolve()
 if __name__ == "__main__":
     pipeline = Pipeline.from_template_dir(
         dirpath="./examples/config",
+        param_path="./examples/config/params.yaml",
         define_func_paths=["./custom_functions/define_funcs.py"],
         transform_func_paths=["./custom_functions/transform_funcs.py"],
     )
