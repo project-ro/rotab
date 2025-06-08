@@ -8,8 +8,10 @@ processes:
     tables:
       - name: user
         path: ../../output/filtered_users.csv
+        schema: ${schema.user.columns}
       - name: trans
         path: ../../output/filtered_transactions.csv
+        schema: ${schema.trans.columns}
     steps:
       - name: filter_users_main
         with: user

@@ -6,3 +6,33 @@ params:
       - "log_age"
       - "amount"
       - "high_value"
+
+schema:
+  user:
+    description: User table with age and grouping
+    columns:
+      - name: id
+        dtype: str
+        description: id
+      - name: user_id
+        dtype: str
+        description: Unique identifier for each user
+      - name: age
+        dtype: int
+        description: Age of the user
+      - name: age_group
+        dtype: int
+        description: Age group of the user, calculated as age // 10
+
+  trans:
+    description: Transaction table with amounts and flags
+    columns:
+      - name: id
+        dtype: str
+        description: id
+      - name: user_id
+        dtype: str
+        description: Unique identifier for each user
+      - name: amount
+        dtype: float
+        description: Amount of the transaction

@@ -3,6 +3,54 @@ from rotab.core.operation.dataframes_funcs import *
 from pandas.testing import assert_frame_equal
 
 
+import pytest
+import pandas as pd
+from typing import Dict
+
+
+@pytest.mark.parametrize(
+    "df,schema,expect_error,match",
+    [
+        (
+            pd.DataFrame({"user_id": [1, 2, 3], "age": [25, 35, 45]}),
+            {"columns": [{"name": "user_id", "type": "int"}, {"name": "age", "type": "int"}]},
+            False,
+            None,
+        ),
+        (
+            pd.DataFrame({"user_id": [1, 2, 3]}),
+            {"columns": [{"name": "user_id", "type": "int"}, {"name": "age", "type": "int"}]},
+            True,
+            "Missing required column: age",
+        ),
+        (
+            pd.DataFrame({"user_id": [1, 2, 3], "age": ["25", "35", "45"]}),
+            {"columns": [{"name": "user_id", "type": "int"}, {"name": "age", "type": "int"}]},
+            True,
+            "Type mismatch for column 'age'",
+        ),
+        (
+            pd.DataFrame({"user_id": [1, 2, 3], "age": [25, 35, 45]}),
+            {"columns": "not a list"},
+            True,
+            "Invalid schema: 'columns' must be a list of dicts",
+        ),
+        (
+            pd.DataFrame({"age": [25, 35, 45]}),
+            {"columns": [{"name": "age", "type": "datetime"}]},
+            True,
+            "Unsupported type in schema: datetime for column: age",
+        ),
+    ],
+)
+def test_validate_table_schema_parametrized(df: pd.DataFrame, schema: Dict, expect_error: bool, match: str):
+    if expect_error:
+        with pytest.raises(ValueError, match=match):
+            validate_table_schema(df, schema)
+    else:
+        assert validate_table_schema(df, schema) is True
+
+
 def test_sort_by():
     df = pd.DataFrame({"id": [3, 1, 2]})
     result = sort_by(df, "id")

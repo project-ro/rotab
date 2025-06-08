@@ -1,43 +1,50 @@
 import pandas as pd
+import os
+import importlib.util
 from rotab.core.operation.new_columns_funcs import *
 from rotab.core.operation.dataframes_funcs import *
-import importlib.util
-import os
+
+
 spec = importlib.util.spec_from_file_location('new_columns_funcs', r'/home/yutaitatsu/rotab/custom_functions/new_columns_funcs.py')
-new_columns_funcs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(new_columns_funcs)
-globals().update({k: v for k, v in new_columns_funcs.__dict__.items() if callable(v) and not k.startswith('__')})
+custom_new_columns_funcs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(custom_new_columns_funcs)
+
 spec = importlib.util.spec_from_file_location('dataframes_funcs', r'/home/yutaitatsu/rotab/custom_functions/dataframes_funcs.py')
-dataframes_funcs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(dataframes_funcs)
-globals().update({k: v for k, v in dataframes_funcs.__dict__.items() if callable(v) and not k.startswith('__')})
+custom_dataframes_funcs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(custom_dataframes_funcs)
+
 
 
 # STEPS FUNCTIONS:
 
+
 def step_filter_users_user_filter(user):
     """Step: filter_users """
     user = user.query('age < 30').copy()
-    user.loc[:, 'age_group'] = user.apply(lambda row: row['age'] // 10, axis=1)
+    user["age_group"] = user.apply(lambda row: row['age'] // 10, axis=1)
     return user
+
 
 def step_summarize_transactions_trans_summary(trans):
     """Step: summarize_transactions """
     trans = trans.query('amount > 0').copy()
-    trans.loc[:, 'is_large'] = trans.apply(lambda row: row['amount'] > 5000, axis=1)
+    trans["is_large"] = trans.apply(lambda row: row['amount'] > 5000, axis=1)
     return trans
+
 
 def step_filter_users_main_transaction_enrichment(user):
     """Step: filter_users_main """
     user = user.query('age > 18').copy()
-    user.loc[:, 'log_age'] = user.apply(lambda row: log(row['age']), axis=1)
-    user.loc[:, 'age_bucket'] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
+    user["log_age"] = user.apply(lambda row: log(row['age']), axis=1)
+    user["age_bucket"] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
     return user
+
 
 def step_filter_transactions_main_transaction_enrichment(trans):
     """Step: filter_transactions_main """
     trans = trans.query('amount > 1000').copy()
     return trans
+
 
 def step_merge_transactions_transaction_enrichment(merge, trans, user):
     """Step: merge_transactions"""
@@ -45,49 +52,48 @@ def step_merge_transactions_transaction_enrichment(merge, trans, user):
 
 def step_enrich_transactions_transaction_enrichment(enriched):
     """Step: enrich_transactions """
-    enriched.loc[:, 'high_value'] = enriched.apply(lambda row: row['amount'] > 10000, axis=1)
+    enriched["high_value"] = enriched.apply(lambda row: row['amount'] > 10000, axis=1)
     return enriched
 
+
+
 # PROCESSES FUNCTIONS:
+
 
 def process_user_filter():
     """Filter users under 30"""
     # load tables
-    user = pd.read_csv(r'/home/yutaitatsu/rotab/examples/data/user.csv')
-
+    user = pd.read_csv(r'../../data/user.csv', dtype={'id': str, 'user_id': str, 'age': int, 'age_group': int})
     # process steps
     user = step_filter_users_user_filter(user)
-
     # dump output
     path = os.path.abspath(r'../../output/filtered_users.csv')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     user.to_csv(path, index=False)
 
+
 def process_trans_summary():
     """Summarize transaction amounts"""
     # load tables
-    trans = pd.read_csv(r'/home/yutaitatsu/rotab/examples/data/transaction.csv')
-
+    trans = pd.read_csv(r'../../data/transaction.csv', dtype={'id': str, 'user_id': str, 'amount': float})
     # process steps
     trans = step_summarize_transactions_trans_summary(trans)
-
     # dump output
     path = os.path.abspath(r'../../output/filtered_transactions.csv')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     trans.to_csv(path, index=False)
 
+
 def process_transaction_enrichment():
     """Enrich user data with transaction details"""
     # load tables
-    user = pd.read_csv(r'/home/yutaitatsu/rotab/examples/output/filtered_users.csv')
-    trans = pd.read_csv(r'/home/yutaitatsu/rotab/examples/output/filtered_transactions.csv')
-
+    user = pd.read_csv(r'../../output/filtered_users.csv', dtype={'id': str, 'user_id': str, 'age': int, 'age_group': int})
+    trans = pd.read_csv(r'../../output/filtered_transactions.csv', dtype={'id': str, 'user_id': str, 'amount': float})
     # process steps
     user = step_filter_users_main_transaction_enrichment(user)
     trans = step_filter_transactions_main_transaction_enrichment(trans)
     enriched = step_merge_transactions_transaction_enrichment(merge, trans, user)
     enriched = step_enrich_transactions_transaction_enrichment(enriched)
-
     # dump output
     path = os.path.abspath(r'../../output/final_output.csv')
     os.makedirs(os.path.dirname(path), exist_ok=True)

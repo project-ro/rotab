@@ -1,4 +1,4 @@
 id,user_id,amount,is_large
-1,100,5000,False
-2,101,15000,True
-3,103,800,False
+1,100,5000.0,False
+2,101,15000.0,True
+3,103,800.0,False

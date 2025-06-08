@@ -7,6 +7,7 @@ import textwrap
 import re
 from pathlib import Path
 from typing import Dict, Any, List
+from rotab.core.operation.script_generator import ScriptGenerator
 from rotab.core.operation import new_columns_funcs, dataframes_funcs
 
 indent = "  "
@@ -29,12 +30,14 @@ class RowExprTransformer(ast.NodeTransformer):
 class Pipeline:
     def __init__(
         self,
-        config: Dict[str, Any],
+        template: Dict[str, Any],
+        params: Dict[str, Any],
         base_path: str,
         new_columns_func_paths: list[str],
         dataframes_func_paths: list[str],
     ):
-        self.config = config
+        self.template = template
+        self.params = params
         self.base_path = base_path
         self.new_columns_func_paths = new_columns_func_paths
         self.dataframes_func_paths = dataframes_func_paths
@@ -81,105 +84,12 @@ class Pipeline:
             )
         return lines
 
-    def generate_script(self) -> str:
-        import_lines = self._get_common_import_lines()
-        step_funcs = ["# STEPS FUNCTIONS:", ""]
-        process_funcs = ["# PROCESSES FUNCTIONS:"]
-        main_calls = []
-
-        for i, process in enumerate(self.config.get("processes", [])):
-            process_name = process.get("name", f"block_{i}")
-            description = process.get("description", "")
-            step_calls = []
-            local_vars = set()
-
-            for step in process.get("steps", []):
-                step_name = step.get("name")
-                if not step_name:
-                    raise ValueError("Each step must have a 'name' field.")
-                if "with" in step:
-                    var = step["with"]
-                    local_vars.add(var)
-                    lines = [f"def step_{step_name}_{process_name}({var}):"]
-                    lines.append(f'    """Step: {step_name} """')
-                    if "filter" in step:
-                        lines.append(f"    {var} = {var}.query('{step['filter']}').copy()")
-                    if "new_columns" in step:
-                        for line in step["new_columns"].split("\n"):
-                            if line.strip():
-                                lhs, rhs = map(str.strip, line.split("=", 1))
-                                lambda_expr = self._to_lambda_expr(rhs)
-                                lines.append(f"    {var}.loc[:, '{lhs}'] = {var}.apply({lambda_expr}, axis=1)")
-                    if "columns" in step and "new_columns" not in step:
-                        cols = step["columns"]
-                        lines.append(f"    {var} = {var}[{cols}]")
-                    lines.append(f"    return {var}")
-                    step_funcs.append("\n".join(lines))
-                    step_funcs.append("")
-                    step_calls.append(f"    {var} = step_{step_name}_{process_name}({var})")
-
-                elif "dataframes" in step:
-                    assign = step["dataframes"]
-                    lhs, rhs = map(str.strip, assign.split("=", 1))
-                    try:
-                        parsed = ast.parse(rhs, mode="eval")
-                        arg_names = sorted({node.id for node in ast.walk(parsed) if isinstance(node, ast.Name)})
-                    except Exception:
-                        raise ValueError(f"Cannot parse dataframes expression: {assign}")
-
-                    step_calls.append(f"    {lhs} = step_{step_name}_{process_name}({', '.join(arg_names)})")
-                    lines = [
-                        f"def step_{step_name}_{process_name}({', '.join(arg_names)}):",
-                        f'    """Step: {step_name}"""',
-                        f"    return {rhs}",
-                    ]
-                    step_funcs.append("\n".join(lines))
-                    step_funcs.append("")
-
-            # create process function
-            func_lines = [""]
-            func_lines.append(f"def process_{process_name}():")
-            if description:
-                func_lines.append(f'    """{description}"""')
-
-            func_lines.append("    # load tables")
-            for table in process.get("tables", []):
-                name, rel_path = table["name"], table["path"]
-                abs_path = os.path.abspath(os.path.join(self.base_path, rel_path))
-                func_lines.append(f"    {name} = pd.read_csv(r'{abs_path}')")
-
-            func_lines.append("\n    # process steps")
-            func_lines.extend(step_calls)
-
-            func_lines.append("\n    # dump output")
-            for dump in process.get("dumps", []):
-                dfname, path = dump["return"], dump["path"]
-                func_lines.extend(
-                    [
-                        f"    path = os.path.abspath(r'{path}')",
-                        "    os.makedirs(os.path.dirname(path), exist_ok=True)",
-                        f"    {dfname}.to_csv(path, index=False)",
-                    ]
-                )
-
-            process_funcs.append("\n".join(func_lines))
-            main_calls.append(f"process_{process_name}()")
-
-        script_lines = (
-            import_lines
-            + ["", ""]
-            + step_funcs
-            + process_funcs
-            + ["", "", "if __name__ == '__main__':"]
-            + [f"    {call}" for call in main_calls]
-        )
-        return "\n".join(script_lines)
-
     def write_script(self, path: str):
         abs_path = os.path.abspath(path)
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        script_generator = ScriptGenerator(self.template, self.params)
         with open(abs_path, "w") as f:
-            f.write(self.generate_script())
+            f.write(script_generator.generate_script())
 
     def execute_script(self, path: str):
         result = subprocess.run(["python", path], cwd=self.base_path, capture_output=True, text=True)
@@ -439,12 +349,13 @@ class Pipeline:
         templates = cls._load_templates_with_render(dirpath, params)
         resolved_order = cls._toposort_templates(templates)
 
-        merged_config = {"processes": []}
+        merged_template = {"processes": []}
         for name in resolved_order:
-            merged_config["processes"].extend(templates[name].get("processes", []))
+            merged_template["processes"].extend(templates[name].get("processes", []))
 
         return cls(
-            config=merged_config,
+            template=merged_template,
+            params=params,
             base_path=dirpath,
             new_columns_func_paths=new_columns_func_paths,
             dataframes_func_paths=dataframes_func_paths,

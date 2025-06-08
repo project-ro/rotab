@@ -2,6 +2,44 @@ import pandas as pd
 from typing import List, Dict, Any
 
 
+def validate_table_schema(df: pd.DataFrame, schema: Dict):
+    """
+    Args:
+        df (pd.DataFrame): DataFrame to validate.
+        schema (Dict): {'columns': [{'name': ..., 'type': ..., 'description': ...}, ...]}
+
+    Raises:
+        ValueError: If the CSV file cannot be read, or if the schema is invalid, or if there are type mismatches.
+    """
+
+    columns = schema.get("columns", [])
+    if not isinstance(columns, list):
+        raise ValueError("Invalid schema: 'columns' must be a list of dicts")
+
+    type_mapping = {"int": "int64", "float": "float64", "str": "object", "bool": "bool"}
+
+    for col in columns:
+        name = col.get("name")
+        expected_type = col.get("type")
+
+        if name not in df.columns:
+            raise ValueError(f"Missing required column: {name}")
+
+        if expected_type:
+            actual_type = str(df[name].dtype)
+            expected_pandas_type = type_mapping.get(expected_type)
+
+            if expected_pandas_type is None:
+                raise ValueError(f"Unsupported type in schema: {expected_type} for column: {name}")
+
+            if actual_type != expected_pandas_type:
+                raise ValueError(
+                    f"Type mismatch for column '{name}': expected {expected_pandas_type}, got {actual_type}"
+                )
+
+    return True
+
+
 def sort_by(table: pd.DataFrame, column: str, ascending: bool = True) -> pd.DataFrame:
     """
     Sort the table by a specific column.
