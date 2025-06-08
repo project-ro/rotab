@@ -141,13 +141,17 @@ class ScriptGenerator:
             func_lines.append(textwrap.indent("# dump output", INDENT))
             for dump in process.get("dumps", []):
                 dfname, path = dump["return"], dump["path"]
-                dump_code = [
-                    f"path = os.path.abspath(r'{path}')",
-                    "os.makedirs(os.path.dirname(path), exist_ok=True)",
-                    f"{dfname}.to_csv(path, index=False)",
-                ]
-                func_lines.append(textwrap.indent("\n".join(dump_code), INDENT))
+                schema = dump.get("schema")
 
+                dump_code = [f"path = os.path.abspath(r'{path}')", "os.makedirs(os.path.dirname(path), exist_ok=True)"]
+
+                if schema:
+                    schema_str = json.dumps(schema, indent=4)
+                    dump_code.append(f"validate_table_schema({dfname}, columns={schema_str})")
+
+                dump_code.append(f"{dfname}.to_csv(path, index=False)")
+
+                func_lines.append(textwrap.indent("\n".join(dump_code), INDENT))
             process_funcs.append("\n".join(func_lines))
             main_calls.append(f"process_{process_name}()")
 
