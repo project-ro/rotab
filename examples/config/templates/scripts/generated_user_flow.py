@@ -34,11 +34,12 @@ def step_summarize_transactions_trans_summary(trans):
 
 def step_filter_users_main_transaction_enrichment(user):
     """Step: filter_users_main """
-    filtered_users = user.copy()
-    filtered_users = user.query('age > 18')
-    filtered_users["log_age"] = user.apply(lambda row: log(row['age']), axis=1)
-    filtered_users["age_bucket"] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
-    return filtered_users
+    if True:
+        filtered_users = user.copy()
+        filtered_users = user.query('age > 18')
+        filtered_users["log_age"] = user.apply(lambda row: log(row['age']), axis=1)
+        filtered_users["age_bucket"] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
+        return filtered_users
 
 
 def step_filter_transactions_main_transaction_enrichment(trans):
@@ -49,7 +50,8 @@ def step_filter_transactions_main_transaction_enrichment(trans):
 
 def step_merge_transactions_transaction_enrichment(filtered_users, merge, trans):
     """Step: merge_transactions"""
-    return merge(left=filtered_users, right=trans, on='user_id')
+    if True:
+        return merge(left=filtered_users, right=trans, on='user_id')
 
 def step_enrich_transactions_transaction_enrichment(enriched):
     """Step: enrich_transactions """
@@ -88,44 +90,47 @@ def process_trans_summary():
 def process_transaction_enrichment():
     """Enrich user data with transaction details"""
     # load tables
-    user = pd.read_csv(r'../../output/filtered_users.csv', dtype={'id': str, 'user_id': str, 'age': int, 'age_group': int})
-    trans = pd.read_csv(r'../../output/filtered_transactions.csv', dtype={'id': str, 'user_id': str, 'amount': float})
+    if True:
+        user = pd.read_csv(r'../../output/filtered_users.csv', dtype={'id': str, 'user_id': str, 'age': int, 'age_group': int})
+    if True:
+        trans = pd.read_csv(r'../../output/filtered_transactions.csv', dtype={'id': str, 'user_id': str, 'amount': float})
     # process steps
     filtered_users = step_filter_users_main_transaction_enrichment(user)
     trans = step_filter_transactions_main_transaction_enrichment(trans)
     enriched = step_merge_transactions_transaction_enrichment(filtered_users, merge, trans)
     enriched = step_enrich_transactions_transaction_enrichment(enriched)
     # dump output
-    path = os.path.abspath(r'../../output/final_output.csv')
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    validate_table_schema(enriched, columns=[
-        {
-            "name": "user_id",
-            "dtype": "str",
-            "description": "Unique identifier for each user"
-        },
-        {
-            "name": "log_age",
-            "dtype": "float",
-            "description": "Logarithm of the user's age"
-        },
-        {
-            "name": "age_bucket",
-            "dtype": "int",
-            "description": "Age bucket of the user, calculated as age // 10 * 10"
-        },
-        {
-            "name": "amount",
-            "dtype": "float",
-            "description": "Amount of the transaction"
-        },
-        {
-            "name": "high_value",
-            "dtype": "bool",
-            "description": "Flag indicating if the transaction amount is greater than 10000"
-        }
-    ])
-    enriched.to_csv(path, index=False)
+    if enriched is not None:
+        path = os.path.abspath(r'../../output/final_output.csv')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        validate_table_schema(enriched, columns=[
+            {
+                "name": "user_id",
+                "dtype": "str",
+                "description": "Unique identifier for each user"
+            },
+            {
+                "name": "log_age",
+                "dtype": "float",
+                "description": "Logarithm of the user's age"
+            },
+            {
+                "name": "age_bucket",
+                "dtype": "int",
+                "description": "Age bucket of the user, calculated as age // 10 * 10"
+            },
+            {
+                "name": "amount",
+                "dtype": "float",
+                "description": "Amount of the transaction"
+            },
+            {
+                "name": "high_value",
+                "dtype": "bool",
+                "description": "Flag indicating if the transaction amount is greater than 10000"
+            }
+        ])
+        enriched.to_csv(path, index=False)
 
 
 if __name__ == '__main__':

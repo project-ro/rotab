@@ -67,21 +67,28 @@ class ScriptGenerator:
                 if not step_name:
                     raise ValueError("Each step must have a 'name' field.")
 
+                indent_depth = 1
                 if "with" in step:
                     var = step["with"]
                     local_vars.add(var)
                     lines = [f"def step_{step_name}_{process_name}({var}):"]
-                    body = [f'"""Step: {step_name} """']
+                    body = [textwrap.indent(f'"""Step: {step_name} """', INDENT)]
+
+                    if "when" in step:
+                        condition = step["when"]
+                        body.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
+                        indent_depth += 1
 
                     if "as" in step:
                         var_result = step["as"]
-                        body.append(f"{var_result} = {var}.copy()")
+                        body.append(textwrap.indent(f"{var_result} = {var}.copy()", INDENT * indent_depth))
                     else:
                         var_result = var
 
                     if "filter" in step:
-                        body.append(f"{var_result} = {var}.query('{step['filter']}')")
-
+                        body.append(
+                            textwrap.indent(f"{var_result} = {var}.query('{step['filter']}')", INDENT * indent_depth)
+                        )
                     if "new_columns" in step:
                         for line in step["new_columns"].split("\n"):
                             if line.strip():
@@ -90,15 +97,21 @@ class ScriptGenerator:
                                     rhs_transformed = VariableToRowTransformer.transform(rhs)
                                 except Exception as e:
                                     raise ValueError(f"Failed to parse RHS expression: {rhs!r}\n{e}")
+
                                 body.append(
-                                    f'{var_result}["{lhs}"] = {var}.apply(lambda row: {rhs_transformed}, axis=1)'
+                                    textwrap.indent(
+                                        f'{var_result}["{lhs}"] = {var}.apply(lambda row: {rhs_transformed}, axis=1)',
+                                        INDENT * indent_depth,
+                                    )
                                 )
 
                     if "columns" in step and "new_columns" not in step:
                         cols = step["columns"]
-                        body.append(f"{var_result} = {var}[{cols}]")
-                    body.append(f"return {var_result}")
-                    lines.extend([textwrap.indent(line, INDENT) for line in body])
+                        body.append(textwrap.indent(f"{var_result} = {var}[{cols}]", INDENT * indent_depth))
+
+                    body.append(textwrap.indent(f"return {var_result}", INDENT * indent_depth))
+
+                    lines.extend([line for line in body])
                     step_funcs.append("\n".join(lines))
                     step_funcs.extend(["", ""])
                     call_line = f"{var_result} = step_{step_name}_{process_name}({var})"
@@ -118,7 +131,11 @@ class ScriptGenerator:
                         textwrap.indent(f'"""Step: {step_name}"""', INDENT),
                     ]
 
-                    lines.append(textwrap.indent(f"return {rhs}", INDENT))
+                    if "when" in step:
+                        lines.append(textwrap.indent(f"if {step['when']}:", INDENT * indent_depth))
+                        indent_depth += 1
+
+                    lines.append(textwrap.indent(f"return {rhs}", INDENT * indent_depth))
 
                     step_funcs.append("\n".join(lines))
                     step_funcs.append("")
@@ -131,6 +148,11 @@ class ScriptGenerator:
 
             func_lines.append(textwrap.indent("# load tables", INDENT))
             for table in process.get("tables", []):
+                indent_depth = 1
+                if "when" in table:
+                    condition = table["when"]
+                    func_lines.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
+                    indent_depth += 1
                 name = table["name"]
                 path = table["path"]
                 # Generate dtype mapping from schema
@@ -142,27 +164,38 @@ class ScriptGenerator:
                         # Extend as needed for float, bool, etc.
                 if dtype_map:
                     dtype_str = "{" + ", ".join(f"'{k}': {v}" for k, v in dtype_map.items()) + "}"
-                    func_lines.append(textwrap.indent(f"{name} = pd.read_csv(r'{path}', dtype={dtype_str})", INDENT))
+                    func_lines.append(
+                        textwrap.indent(f"{name} = pd.read_csv(r'{path}', dtype={dtype_str})", INDENT * indent_depth)
+                    )
                 else:
-                    func_lines.append(textwrap.indent(f"{name} = pd.read_csv(r'{path}')", INDENT))
+                    func_lines.append(textwrap.indent(f"{name} = pd.read_csv(r'{path}')", INDENT * indent_depth))
 
             func_lines.append(textwrap.indent("# process steps", INDENT))
             func_lines.extend(step_calls)
 
             func_lines.append(textwrap.indent("# dump output", INDENT))
             for dump in process.get("dumps", []):
+                indent_depth = 1
+                if "when" in dump:
+                    condition = dump["when"]
+                    func_lines.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
+                    indent_depth += 1
                 dfname, path = dump["return"], dump["path"]
                 schema = dump.get("schema")
 
-                dump_code = [f"path = os.path.abspath(r'{path}')", "os.makedirs(os.path.dirname(path), exist_ok=True)"]
+                dump_code = [
+                    textwrap.indent(f"path = os.path.abspath(r'{path}')", INDENT * indent_depth),
+                    textwrap.indent(f"os.makedirs(os.path.dirname(path), exist_ok=True)", INDENT * indent_depth),
+                ]
 
                 if schema:
                     schema_str = json.dumps(schema, indent=4)
-                    dump_code.append(f"validate_table_schema({dfname}, columns={schema_str})")
+                    dump_code.append(
+                        textwrap.indent(f"validate_table_schema({dfname}, columns={schema_str})", INDENT * indent_depth)
+                    )
+                dump_code.append(textwrap.indent(f"{dfname}.to_csv(path, index=False)", INDENT * indent_depth))
 
-                dump_code.append(f"{dfname}.to_csv(path, index=False)")
-
-                func_lines.append(textwrap.indent("\n".join(dump_code), INDENT))
+                func_lines.append("\n".join(dump_code))
             process_funcs.append("\n".join(func_lines))
             main_calls.append(f"process_{process_name}()")
 

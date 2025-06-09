@@ -35,7 +35,7 @@ processes:
         new_columns: high_value = amount > 10000
         columns: ${params.enrich_transactions.columns}
     dumps:
-      - when: ${params.test}
+      - when: enriched is not None
         return: enriched
         path: ../../output/final_output.csv
         schema: ${schema.enriched.columns}
