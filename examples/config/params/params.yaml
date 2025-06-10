@@ -38,7 +38,7 @@ schema:
         dtype: float
         description: Amount of the transaction
 
-  enriched:
+  final_output:
     description: Enriched user and transaction data
     columns:
       - name: user_id
@@ -47,11 +47,8 @@ schema:
       - name: log_age
         dtype: float
         description: Logarithm of the user's age
-      - name: age_bucket
-        dtype: int
-        description: Age bucket of the user, calculated as age // 10 * 10
       - name: amount
-        dtype: float
+        dtype: int
         description: Amount of the transaction
       - name: high_value
         dtype: bool

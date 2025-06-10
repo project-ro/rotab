@@ -7,9 +7,11 @@ processes:
     steps:
       - name: filter_users
         with: user
-        filter: age < 30
-        new_columns: age_group = age // 10
-        columns: [user_id, age, age_group]
+        mutate:
+          - filter: age < 30
+          - derive: age_group = age // 10
+          - select: [user_id, age, age_group]
+        as: filtered_users
     dumps:
-      - return: user
+      - output: filtered_users
         path: ../../output/filtered_users.csv

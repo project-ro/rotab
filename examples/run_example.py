@@ -13,7 +13,7 @@ if __name__ == "__main__":
     pipeline = Pipeline.from_template_dir(
         dirpath="./examples/config/templates",
         param_path="./examples/config/params/params.yaml",
-        new_columns_func_paths=["./custom_functions/new_columns_funcs.py"],
-        dataframes_func_paths=["./custom_functions/dataframes_funcs.py"],
+        derive_func_paths=["./custom_functions/derive_funcs.py"],
+        transform_func_paths=["./custom_functions/transform_funcs.py"],
     )
     pipeline.run(script_path="./scripts/generated_user_flow.py", execute=True, dag=True)

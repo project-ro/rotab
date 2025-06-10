@@ -75,14 +75,16 @@ class ScriptGenerator:
                 indent_depth = 1
 
                 var = step["with"]
-                if not isinstance(var, list):
-                    var = " ,".join(var)
+                if isinstance(var, str):
+                    var_string = var.strip()
+                elif isinstance(var, list):
+                    var_string = " ,".join([v.strip() for v in var if v.strip()])
 
-                lines = [f"def step_{step_name}_{process_name}({var}):"]
+                lines = [f"def step_{step_name}_{process_name}({var_string}):"]
                 body = [textwrap.indent(f'"""Step: {step_name} """', INDENT)]
 
                 var_result = step["as"]
-                body.append(textwrap.indent(f"{var_result} = {var}.copy()", INDENT * indent_depth))
+                body.append(textwrap.indent(f"{var_result} = {var_string}.copy()", INDENT * indent_depth))
 
                 if "when" in step:
                     condition = step["when"]
@@ -90,30 +92,32 @@ class ScriptGenerator:
                     indent_depth += 1
 
                 if "mutate" in step:
-                    if "filter" in step["mutate"]:
-                        body.append(
-                            textwrap.indent(
-                                f"{var_result} = {var}.query('{step['mutate']['filter']}')", INDENT * indent_depth
-                            )
-                        )
-                    if "derive" in step["mutate"]:
-                        for line in step["mutate"]["derive"].split("\n"):
-                            if line.strip():
-                                lhs, rhs = map(str.strip, line.split("=", 1))
-                                try:
-                                    rhs_transformed = VariableToRowTransformer.transform(rhs)
-                                except Exception as e:
-                                    raise ValueError(f"Failed to parse RHS expression: {rhs!r}\n{e}")
-
-                                body.append(
-                                    textwrap.indent(
-                                        f'{var_result}["{lhs}"] = {var}.apply(lambda row: {rhs_transformed}, axis=1)',
-                                        INDENT * indent_depth,
-                                    )
+                    for sub in step["mutate"]:
+                        if "filter" in sub:
+                            body.append(
+                                textwrap.indent(
+                                    f"{var_result} = {var_result}.query('{sub['filter']}')",
+                                    INDENT * indent_depth,
                                 )
-                    if "select" in step["mutate"]:
-                        cols = step["mutate"]["select"]
-                        body.append(textwrap.indent(f"{var_result} = {var}[{cols}]", INDENT * indent_depth))
+                            )
+                        if "derive" in sub:
+                            for line in sub["derive"].split("\n"):
+                                if line.strip():
+                                    lhs, rhs = map(str.strip, line.split("=", 1))
+                                    try:
+                                        rhs_transformed = VariableToRowTransformer.transform(rhs)
+                                    except Exception as e:
+                                        raise ValueError(f"Failed to parse RHS expression: {rhs!r}\n{e}")
+
+                                    body.append(
+                                        textwrap.indent(
+                                            f'{var_result}["{lhs}"] = {var_result}.apply(lambda row: {rhs_transformed}, axis=1)',
+                                            INDENT * indent_depth,
+                                        )
+                                    )
+                        if "select" in sub:
+                            cols = sub["select"]
+                            body.append(textwrap.indent(f"{var_result} = {var_result}[{cols}]", INDENT * indent_depth))
 
                 elif "transform" in step:
                     body.append(
@@ -128,7 +132,7 @@ class ScriptGenerator:
                 lines.extend([line for line in body])
                 step_funcs.append("\n".join(lines))
                 step_funcs.extend(["", ""])
-                call_line = f"{var_result} = step_{step_name}_{process_name}({var})"
+                call_line = f"{var_result} = step_{step_name}_{process_name}({var_string})"
                 step_calls.append(textwrap.indent(call_line, INDENT))
 
             func_lines = ["", "", f"def process_{process_name}():"]
@@ -179,6 +183,16 @@ class ScriptGenerator:
 
                 if schema:
                     schema_str = json.dumps(schema, indent=4)
+                    for col_def in schema:
+                        col = col_def.get("name")
+                        expected_type = col_def.get("dtype")
+                        if expected_type == "string" or expected_type == "str":
+                            dump_code.append(
+                                textwrap.indent(
+                                    f'{dfname}["{col}"] = {dfname}["{col}"].astype(str)', INDENT * indent_depth
+                                )
+                            )
+
                     dump_code.append(
                         textwrap.indent(f"validate_table_schema({dfname}, columns={schema_str})", INDENT * indent_depth)
                     )

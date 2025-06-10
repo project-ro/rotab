@@ -48,4 +48,4 @@ processes:
     dumps:
       - output: final_output
         path: ../../output/final_output.csv
-        schema: ${schema.enriched.columns}
+        schema: ${schema.final_output.columns}

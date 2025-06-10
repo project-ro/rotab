@@ -46,14 +46,14 @@ processes:
       - name: filter_users
         with: table_a
         mutate:
-          filter: age > 18
-          derive: |
-            log_age = log(age)
-            age_bucket = age // 10 * 10
-          select: [user_id, log_age, age_bucket]
+          - filter: age > 18
+          - derive: |
+              log_age = log(age)
+              age_bucket = age // 10 * 10
+          - select: [user_id, log_age, age_bucket]
         as: table_a_filtered
     dumps:
-      - return: table_a_filtered
+      - output: table_a_filtered
         path: ../data/output/table_a_processed.csv
 """
 
@@ -75,7 +75,7 @@ processes:
       - name: filter_transactions
         with: table_b
         mutate:
-          filter: amount > ${ params.min_amount }
+          - filter: amount > ${ params.min_amount }
         as: table_b_filtered
 
       - name: merge_transactions
@@ -86,12 +86,12 @@ processes:
       - name: enrich_transactions
         with: merged
         mutate:
-          derive: |
-            high_value = amount > ${ params.threshold }
-          select: ${params.output_columns}
+          - derive: |
+              high_value = amount > ${ params.threshold }
+          - select: ${params.output_columns}
         as: enriched
     dumps:
-      - return: enriched
+      - output: enriched
         path: ../output/final_output.csv
 """
 
@@ -125,7 +125,7 @@ def test_pipeline_get_dependencies(setup_virtual_project):
     print("template files:", list(Path(setup_virtual_project["template_dir"]).glob("*")))
     print("param path:", setup_virtual_project["param_path"])
 
-    deps = pipeline.get_dependencies()
+    deps = pipeline._get_dependencies()
 
     print(f"Dependencies: {deps}")
 
@@ -140,9 +140,9 @@ def test_pipeline_get_dependencies(setup_virtual_project):
     # === step_successors ===
     step_successors = deps["step_successors"]
     assert step_successors["../data/tables/table_a.csv"] == ["filter_users"]
-    assert step_successors["filter_users"] == ["../data/tables/output/table_a_processed.csv"]
+    assert step_successors["filter_users"] == ["../data/output/table_a_processed.csv"]
 
-    assert step_successors["../data/tables/output/table_a_processed.csv"] == ["merge_transactions"]
+    assert step_successors["../data/output/table_a_processed.csv"] == ["merge_transactions"]
     assert step_successors["../data/tables/table_b.csv"] == ["filter_transactions"]
     assert step_successors["filter_transactions"] == ["merge_transactions"]
     assert step_successors["merge_transactions"] == ["enrich_transactions"]
@@ -158,7 +158,7 @@ def test_pipeline_get_dependencies(setup_virtual_project):
 
     assert process_to_step["process_a"] == ["../data/tables/table_a.csv", "filter_users"]
     assert process_to_step["process_b"] == [
-        "../data/tables/output/table_a_processed.csv",
+        "../data/output/table_a_processed.csv",
         "../data/tables/table_b.csv",
         "filter_transactions",
         "merge_transactions",

@@ -162,7 +162,7 @@ class Pipeline:
                         self._add_successor(result, prev, step_name)
 
             for dump in proc.get("dumps", []):
-                return_var = dump.get("return")
+                return_var = dump.get("output")
                 output_path = dump.get("path")
                 if return_var and output_path:
                     step_name = self._find_prior_step_using_var(steps, len(steps), return_var, proc_name, tables)
@@ -178,12 +178,9 @@ class Pipeline:
         for k in range(step_index - 1, -1, -1):
             prev = steps[k]
             name = prev.get("name", f"step_{k}_{proc_name}")
-            if "with" in prev and prev["with"] == var:
+            if "as" in prev and prev["as"] == var:
                 return name
-            if "transform" in prev:
-                lhs = prev["transform"].split("=", 1)[0].strip()
-                if lhs == var:
-                    return name
+
         # 見つからなければtablesから探す
         for tbl in tables:
             if tbl.get("name") == var:
@@ -193,7 +190,7 @@ class Pipeline:
     def _extract_variable_names(self, expr: str) -> List[str]:
         return re.findall(r"\b\w+\b", expr)
 
-    def get_dependencies(self) -> Dict[str, Any]:
+    def _get_dependencies(self) -> Dict[str, Any]:
         template_successors = {}
         process_successors = {}
         step_successors = {}
@@ -269,7 +266,7 @@ class Pipeline:
 
     def generate_dag(self) -> str:
 
-        dependencies = self.get_dependencies()
+        dependencies = self._get_dependencies()
 
         print(dependencies)
 

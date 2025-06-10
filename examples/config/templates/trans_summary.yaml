@@ -7,9 +7,11 @@ processes:
     steps:
       - name: summarize_transactions
         with: trans
-        filter: amount > 0
-        new_columns: is_large = amount > 5000
-        columns: [user_id, amount, is_large]
+        mutate:
+          - filter: amount > 0
+          - derive: is_large = amount > 5000
+          - select: [user_id, amount, is_large]
+        as: filtered_transactions
     dumps:
-      - return: trans
+      - output: filtered_transactions
         path: ../../output/filtered_transactions.csv
