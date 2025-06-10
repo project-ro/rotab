@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List
 from rotab.core.operation.script_generator import ScriptGenerator
-from rotab.core.operation import new_columns_funcs, dataframes_funcs
+from rotab.core.operation import derive_funcs, transform_funcs
 
 indent = "  "
 
@@ -33,16 +33,16 @@ class Pipeline:
         template: Dict[str, Any],
         params: Dict[str, Any],
         base_path: str,
-        new_columns_func_paths: list[str],
-        dataframes_func_paths: list[str],
+        derive_func_paths: list[str],
+        transform_func_paths: list[str],
     ):
         self.template = template
         self.params = params
         self.base_path = base_path
-        self.new_columns_func_paths = new_columns_func_paths
-        self.dataframes_func_paths = dataframes_func_paths
+        self.derive_func_paths = derive_func_paths
+        self.transform_func_paths = transform_func_paths
         self.eval_scope = {}
-        for module in [new_columns_funcs, dataframes_funcs]:
+        for module in [derive_funcs, transform_funcs]:
             self.eval_scope.update({k: v for k, v in module.__dict__.items() if not k.startswith("__") and callable(v)})
         self.eval_scope.update(__builtins__)
 
@@ -66,12 +66,12 @@ class Pipeline:
     def _get_common_import_lines(self) -> list[str]:
         lines = [
             "import pandas as pd",
-            "from rotab.core.operation.new_columns_funcs import *",
-            "from rotab.core.operation.dataframes_funcs import *",
+            "from rotab.core.operation.derive_funcs import *",
+            "from rotab.core.operation.transform_funcs import *",
             "import importlib.util",
             "import os",
         ]
-        for path in self.new_columns_func_paths + self.dataframes_func_paths:
+        for path in self.derive_func_paths + self.transform_func_paths:
             abs_path = os.path.abspath(path)
             module_name = os.path.splitext(os.path.basename(path))[0]
             lines.extend(
@@ -147,8 +147,8 @@ class Pipeline:
             for step_index, step in enumerate(steps):
                 step_name = step.get("name", f"step_{step_index}_{proc_name}")
 
-                if "dataframes" in step:
-                    rhs = step["dataframes"].split("=", 1)[-1].strip() if "=" in step["dataframes"] else ""
+                if "transform" in step:
+                    rhs = step["transform"].split("=", 1)[-1].strip() if "=" in step["transform"] else ""
                     used_vars = self._extract_variable_names(rhs)
                     for var in used_vars:
                         prev = self._find_prior_step_using_var(steps, step_index, var, proc_name, tables)
@@ -180,8 +180,8 @@ class Pipeline:
             name = prev.get("name", f"step_{k}_{proc_name}")
             if "with" in prev and prev["with"] == var:
                 return name
-            if "dataframes" in prev:
-                lhs = prev["dataframes"].split("=", 1)[0].strip()
+            if "transform" in prev:
+                lhs = prev["transform"].split("=", 1)[0].strip()
                 if lhs == var:
                     return name
         # 見つからなければtablesから探す
@@ -342,8 +342,8 @@ class Pipeline:
         cls,
         dirpath: str,
         param_path: str,
-        new_columns_func_paths: list[str],
-        dataframes_func_paths: list[str],
+        derive_func_paths: list[str],
+        transform_func_paths: list[str],
     ):
         params = cls._load_params(param_path)
         templates = cls._load_templates_with_render(dirpath, params)
@@ -357,8 +357,8 @@ class Pipeline:
             template=merged_template,
             params=params,
             base_path=dirpath,
-            new_columns_func_paths=new_columns_func_paths,
-            dataframes_func_paths=dataframes_func_paths,
+            derive_func_paths=derive_func_paths,
+            transform_func_paths=transform_func_paths,
         )
 
     @staticmethod

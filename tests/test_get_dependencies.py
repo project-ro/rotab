@@ -8,6 +8,12 @@ import pandas as pd
 from rotab.core.pipeline import Pipeline
 
 
+import pytest
+import tempfile
+from pathlib import Path
+import pandas as pd
+
+
 @pytest.fixture
 def setup_virtual_project():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -39,15 +45,18 @@ processes:
     steps:
       - name: filter_users
         with: table_a
-        filter: age > 18
-        new_columns: |
-          log_age = log(age)
-          age_bucket = age // 10 * 10
-        columns: [user_id, log_age, age_bucket]
+        mutate:
+          filter: age > 18
+          derive: |
+            log_age = log(age)
+            age_bucket = age // 10 * 10
+          select: [user_id, log_age, age_bucket]
+        as: table_a_filtered
     dumps:
-      - return: table_a
-        path: ../data/tables/output/table_a_processed.csv
+      - return: table_a_filtered
+        path: ../data/output/table_a_processed.csv
 """
+
         (template_dir / "template_a.yaml").write_text(template_a_content)
 
         # Template B
@@ -59,23 +68,33 @@ processes:
     description: template B processes
     tables:
       - name: table_a
-        path: ../data/tables/output/table_a_processed.csv
+        path: ../data/output/table_a_processed.csv
       - name: table_b
         path: ../data/tables/table_b.csv
     steps:
       - name: filter_transactions
         with: table_b
-        filter: amount > ${ params.min_amount }
+        mutate:
+          filter: amount > ${ params.min_amount }
+        as: table_b_filtered
+
       - name: merge_transactions
-        dataframes: merged = merge(left=table_a, right=table_b, on='user_id')
+        with: [table_a, table_b_filtered]
+        transform: merge(left=table_a, right=table_b_filtered, on='user_id')
+        as: merged
+
       - name: enrich_transactions
         with: merged
-        new_columns: high_value = amount > ${ params.threshold }
-        columns: ${params.output_columns }
+        mutate:
+          derive: |
+            high_value = amount > ${ params.threshold }
+          select: ${params.output_columns}
+        as: enriched
     dumps:
-      - return: merged
+      - return: enriched
         path: ../output/final_output.csv
 """
+
         (template_dir / "template_b.yaml").write_text(template_b_content)
 
         # パラメータファイル
@@ -98,8 +117,8 @@ def test_pipeline_get_dependencies(setup_virtual_project):
     pipeline = Pipeline.from_template_dir(
         dirpath=str(setup_virtual_project["template_dir"]),
         param_path=str(setup_virtual_project["param_path"]),
-        new_columns_func_paths=[],
-        dataframes_func_paths=[],
+        derive_func_paths=[],
+        transform_func_paths=[],
     )
 
     print("template dir:", setup_virtual_project["template_dir"])

@@ -46,8 +46,8 @@ class ScriptGenerator:
             "import pandas as pd",
             "import os",
             "import importlib.util",
-            "from rotab.core.operation.new_columns_funcs import *",
-            "from rotab.core.operation.dataframes_funcs import *",
+            "from rotab.core.operation.derive_funcs import *",
+            "from rotab.core.operation.transform_funcs import *",
         ]
 
     def generate_script(self) -> str:
@@ -60,37 +60,44 @@ class ScriptGenerator:
             process_name = process.get("name", f"block_{i}")
             description = process.get("description", "")
             step_calls = []
-            local_vars = set()
 
             for step in process.get("steps", []):
                 step_name = step.get("name")
                 if not step_name:
                     raise ValueError("Each step must have a 'name' field.")
+                if "with" not in step:
+                    raise ValueError(f"Step '{step_name}' must have a 'with' field.")
+                if "mutate" not in step and "transform" not in step:
+                    raise ValueError(f"Step '{step_name}' must have a 'mutate' or 'transform' field.")
+                if "as" not in step:
+                    raise ValueError(f"Step '{step_name}' must have an 'as' field.")
 
                 indent_depth = 1
-                if "with" in step:
-                    var = step["with"]
-                    local_vars.add(var)
-                    lines = [f"def step_{step_name}_{process_name}({var}):"]
-                    body = [textwrap.indent(f'"""Step: {step_name} """', INDENT)]
 
-                    if "when" in step:
-                        condition = step["when"]
-                        body.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
-                        indent_depth += 1
+                var = step["with"]
+                if not isinstance(var, list):
+                    var = " ,".join(var)
 
-                    if "as" in step:
-                        var_result = step["as"]
-                        body.append(textwrap.indent(f"{var_result} = {var}.copy()", INDENT * indent_depth))
-                    else:
-                        var_result = var
+                lines = [f"def step_{step_name}_{process_name}({var}):"]
+                body = [textwrap.indent(f'"""Step: {step_name} """', INDENT)]
 
-                    if "filter" in step:
+                var_result = step["as"]
+                body.append(textwrap.indent(f"{var_result} = {var}.copy()", INDENT * indent_depth))
+
+                if "when" in step:
+                    condition = step["when"]
+                    body.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
+                    indent_depth += 1
+
+                if "mutate" in step:
+                    if "filter" in step["mutate"]:
                         body.append(
-                            textwrap.indent(f"{var_result} = {var}.query('{step['filter']}')", INDENT * indent_depth)
+                            textwrap.indent(
+                                f"{var_result} = {var}.query('{step['mutate']['filter']}')", INDENT * indent_depth
+                            )
                         )
-                    if "new_columns" in step:
-                        for line in step["new_columns"].split("\n"):
+                    if "derive" in step["mutate"]:
+                        for line in step["mutate"]["derive"].split("\n"):
                             if line.strip():
                                 lhs, rhs = map(str.strip, line.split("=", 1))
                                 try:
@@ -104,43 +111,25 @@ class ScriptGenerator:
                                         INDENT * indent_depth,
                                     )
                                 )
-
-                    if "columns" in step and "new_columns" not in step:
-                        cols = step["columns"]
+                    if "select" in step["mutate"]:
+                        cols = step["mutate"]["select"]
                         body.append(textwrap.indent(f"{var_result} = {var}[{cols}]", INDENT * indent_depth))
 
-                    body.append(textwrap.indent(f"return {var_result}", INDENT * indent_depth))
+                elif "transform" in step:
+                    body.append(
+                        textwrap.indent(
+                            f"{var_result} = {step['transform']}",
+                            INDENT * indent_depth,
+                        )
+                    )
 
-                    lines.extend([line for line in body])
-                    step_funcs.append("\n".join(lines))
-                    step_funcs.extend(["", ""])
-                    call_line = f"{var_result} = step_{step_name}_{process_name}({var})"
-                    step_calls.append(textwrap.indent(call_line, INDENT))
+                body.append(textwrap.indent(f"return {var_result}", INDENT * indent_depth))
 
-                elif "dataframes" in step:
-                    assign = step["dataframes"]
-                    lhs, rhs = map(str.strip, assign.split("=", 1))
-                    try:
-                        parsed = ast.parse(rhs, mode="eval")
-                        arg_names = sorted({node.id for node in ast.walk(parsed) if isinstance(node, ast.Name)})
-                    except Exception:
-                        raise ValueError(f"Cannot parse dataframes expression: {assign}")
-
-                    lines = [
-                        f"def step_{step_name}_{process_name}({', '.join(arg_names)}):",
-                        textwrap.indent(f'"""Step: {step_name}"""', INDENT),
-                    ]
-
-                    if "when" in step:
-                        lines.append(textwrap.indent(f"if {step['when']}:", INDENT * indent_depth))
-                        indent_depth += 1
-
-                    lines.append(textwrap.indent(f"return {rhs}", INDENT * indent_depth))
-
-                    step_funcs.append("\n".join(lines))
-                    step_funcs.append("")
-                    call_line = f"{lhs} = step_{step_name}_{process_name}({', '.join(arg_names)})"
-                    step_calls.append(textwrap.indent(call_line, INDENT))
+                lines.extend([line for line in body])
+                step_funcs.append("\n".join(lines))
+                step_funcs.extend(["", ""])
+                call_line = f"{var_result} = step_{step_name}_{process_name}({var})"
+                step_calls.append(textwrap.indent(call_line, INDENT))
 
             func_lines = ["", "", f"def process_{process_name}():"]
             if description:
@@ -157,8 +146,8 @@ class ScriptGenerator:
                 path = table["path"]
                 # Generate dtype mapping from schema
                 dtype_map = {}
-                if self.params.get("schema", {}).get(name, {}).get("columns", None):
-                    for col in self.params["schema"][name]["columns"]:
+                if self.params.get("schema", {}).get(name, {}).get("select", None):
+                    for col in self.params["schema"][name]["select"]:
                         dtype = col.get("dtype")
                         dtype_map[col["name"]] = dtype
                         # Extend as needed for float, bool, etc.
@@ -180,7 +169,7 @@ class ScriptGenerator:
                     condition = dump["when"]
                     func_lines.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
                     indent_depth += 1
-                dfname, path = dump["return"], dump["path"]
+                dfname, path = dump["output"], dump["path"]
                 schema = dump.get("schema")
 
                 dump_code = [
@@ -200,13 +189,13 @@ class ScriptGenerator:
             main_calls.append(f"process_{process_name}()")
 
         custom_imports = [
-            "spec = importlib.util.spec_from_file_location('new_columns_funcs', r'/home/yutaitatsu/rotab/custom_functions/new_columns_funcs.py')",
-            "custom_new_columns_funcs = importlib.util.module_from_spec(spec)",
-            "spec.loader.exec_module(custom_new_columns_funcs)",
+            "spec = importlib.util.spec_from_file_location('derive_funcs', r'/home/yutaitatsu/rotab/custom_functions/derive_funcs.py')",
+            "custom_derive_funcs = importlib.util.module_from_spec(spec)",
+            "spec.loader.exec_module(custom_derive_funcs)",
             "",
-            "spec = importlib.util.spec_from_file_location('dataframes_funcs', r'/home/yutaitatsu/rotab/custom_functions/dataframes_funcs.py')",
-            "custom_dataframes_funcs = importlib.util.module_from_spec(spec)",
-            "spec.loader.exec_module(custom_dataframes_funcs)",
+            "spec = importlib.util.spec_from_file_location('transform_funcs', r'/home/yutaitatsu/rotab/custom_functions/transform_funcs.py')",
+            "custom_transform_funcs = importlib.util.module_from_spec(spec)",
+            "spec.loader.exec_module(custom_transform_funcs)",
         ]
 
         script_lines = (

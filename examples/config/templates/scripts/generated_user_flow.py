@@ -50,8 +50,7 @@ def step_filter_transactions_main_transaction_enrichment(trans):
 
 def step_merge_transactions_transaction_enrichment(filtered_users, merge, trans):
     """Step: merge_transactions"""
-    if True:
-        return merge(left=filtered_users, right=trans, on='user_id')
+    return merge(left=filtered_users, right=trans, on='user_id')
 
 def step_enrich_transactions_transaction_enrichment(enriched):
     """Step: enrich_transactions """
@@ -90,10 +89,8 @@ def process_trans_summary():
 def process_transaction_enrichment():
     """Enrich user data with transaction details"""
     # load tables
-    if True:
-        user = pd.read_csv(r'../../output/filtered_users.csv', dtype={'id': str, 'user_id': str, 'age': int, 'age_group': int})
-    if True:
-        trans = pd.read_csv(r'../../output/filtered_transactions.csv', dtype={'id': str, 'user_id': str, 'amount': float})
+    user = pd.read_csv(r'../../output/filtered_users.csv', dtype={'id': str, 'user_id': str, 'age': int, 'age_group': int})
+    trans = pd.read_csv(r'../../output/filtered_transactions.csv', dtype={'id': str, 'user_id': str, 'amount': float})
     # process steps
     filtered_users = step_filter_users_main_transaction_enrichment(user)
     trans = step_filter_transactions_main_transaction_enrichment(trans)

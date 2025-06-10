@@ -4,38 +4,48 @@ depends:
 
 processes:
   - name: transaction_enrichment
-    description: Enrich user data with transaction details
+
     tables:
       - name: user
-        when: ${params.test}
         path: ../../output/filtered_users.csv
         schema: ${schema.user.columns}
+
       - name: trans
-        when: ${params.test}
         path: ../../output/filtered_transactions.csv
         schema: ${schema.trans.columns}
+
     steps:
       - name: filter_users_main
-        when: ${params.test}
         with: user
+        mutate:
+          - filter: age > ${params.min_age}
+          - derive: |
+              log_age = log(age)
+              age_bucket = age // 10 * 10
+          - select: [user_id, log_age, age_bucket]
         as: filtered_users
-        filter: age > ${params.min_age}
-        new_columns: |
-          log_age = log(age)
-          age_bucket = age // 10 * 10
-        columns: [user_id, log_age, age_bucket]
+        when: ${params.test}
+
       - name: filter_transactions_main
         with: trans
-        filter: amount > 1000
+        mutate:
+          - filter: amount > 1000
+        as: filtered_trans
+
       - name: merge_transactions
-        when: ${params.test}
-        dataframes: enriched = merge(left=filtered_users, right=trans, on='user_id')
+        with: [filtered_users, filtered_trans]
+        transform: merge(left=filtered_users, right=filtered_trans, on='user_id')
+        as: enriched
+
       - name: enrich_transactions
         with: enriched
-        new_columns: high_value = amount > 10000
-        columns: ${params.enrich_transactions.columns}
+        mutate:
+          - derive: |
+              high_value = amount > 10000
+          - select: ${params.enrich_transactions.columns}
+        as: final_output
+
     dumps:
-      - when: enriched is not None
-        return: enriched
+      - output: final_output
         path: ../../output/final_output.csv
         schema: ${schema.enriched.columns}
