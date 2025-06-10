@@ -66,6 +66,8 @@ class TemplateValidator:
         return scope
 
     def validate(self):
+        print("Validateの最初の文字")  # Debugging line
+
         for key in self.config:
             if key not in self.allowed_top_keys:
                 self.errors.append(
@@ -81,6 +83,7 @@ class TemplateValidator:
             self._validate_process(proc, f"processes[{i}]")
 
     def validate_depends(self):
+        print("Validating `depends`...")  # Debugging line
         if "depends" in self.config and not isinstance(self.config["depends"], list):
             self.errors.append(ValidationError("config.depends", "`depends` must be a list."))
             return
@@ -91,6 +94,8 @@ class TemplateValidator:
                     continue
 
     def _validate_process(self, proc: Dict[str, Any], path: str):
+        print(f"Validating process at {path}...")  # Debugging line
+
         seen_table_names = set()
 
         missing_keys = self.required_keys - proc.keys()
@@ -137,12 +142,14 @@ class TemplateValidator:
                     seen_names.add(name)
 
     def _validate_steps(self, steps: Any, table_names: set, path: str):
+        print(f"Validating steps at {path}...")  # Debugging line
         if not isinstance(steps, list):
             self.errors.append(ValidationError(path, "`steps` must be a list."))
             return
 
         defined_vars = set(table_names)
         for i, step in enumerate(steps):
+            print(f"Validating step {i} at {path}[{i}]...")  # Debugging line
             p = f"{path}[{i}]"
             if not isinstance(step, dict):
                 self.errors.append(ValidationError(p, "Each step must be a dict."))
@@ -176,11 +183,6 @@ class TemplateValidator:
         else:
             self.errors.append(ValidationError(f"{path}.with", "`with` must be a string or list of strings."))
 
-        if step["with"] not in defined_vars:
-            self.errors.append(
-                ValidationError(f"{path}.with", f"`with` must refer to a defined table or variable: `{step['with']}`")
-            )
-
     def _validate_as(self, step: dict, defined_vars: set, path: str):
         if "as" in step:
             if not isinstance(step["as"], str):
@@ -197,16 +199,25 @@ class TemplateValidator:
             self.errors.append(ValidationError(path, "`mutate` must be a list."))
             return
 
-        if "derive" in mutate:
-            self._validate_derive(mutate["derive"], defined_vars, f"{path}.derive")
+        for i, block in enumerate(mutate):
+            if not isinstance(block, dict) or len(block) != 1:
+                self.errors.append(ValidationError(f"{path}[{i}]", "Each mutate block must be a single-key dict."))
+                continue
 
-        if "filter" in mutate:
-            self._validate_filter(mutate["filter"], f"{path}.filter")
+            key, value = next(iter(block.items()))
+            sub_path = f"{path}[{i}].{key}"
 
-        if "select" in mutate:
-            self._validate_select(mutate["select"], defined_vars, f"{path}.select")
+            if key == "derive":
+                self._validate_derive(value, defined_vars, sub_path)
+            elif key == "filter":
+                self._validate_filter(value, sub_path)
+            elif key == "select":
+                self._validate_select(value, defined_vars, sub_path)
+            else:
+                self.errors.append(ValidationError(sub_path, f"Unknown mutate operation: `{key}`"))
 
     def _validate_derive(self, derive_block: str, defined_vars: set, path: str):
+        print(f"Validating derive at {path}...")  # Debugging line
         # まず構文エラーをチェック
         before_error_count = len(self.errors)
         self._validate_derive_syntax(derive_block, path)
@@ -290,19 +301,16 @@ class TemplateValidator:
                 self.errors.append(ValidationError(f"{path}[{i}]", f"'{var}' is not a defined variable."))
 
     def _validate_transform(self, transform_expr: str, defined_vars: set, path: str):
-        if "=" in transform_expr and "==" not in transform_expr:
-            self.errors.append(ValidationError(f"{path}.transform", "Transform must not contain assignment."))
-            return
-
-        before_error_count = len(self.errors)
-        self._validate_transform_syntax(transform_expr, allowed_args=defined_vars, path=path)
-        after_error_count = len(self.errors)
-
-        if after_error_count > before_error_count:
-            return  # 構文に問題があれば意味チェックは行わない
-
         try:
-            expr = ast.parse(transform_expr, mode="eval")
+            tree = ast.parse(transform_expr, mode="eval")
+
+            if any(isinstance(node, ast.Assign) for node in ast.walk(tree)):
+                self.errors.append(ValidationError(f"{path}.transform", "Transform must not contain assignment."))
+                return
+
+            self._validate_transform_syntax(transform_expr, allowed_args=defined_vars, path=path)
+
+            expr = tree
             func = self._get_func_name(expr.body.func)
             if not func:
                 self.errors.append(ValidationError(f"{path}.transform", "Unsupported function call format."))
@@ -336,18 +344,20 @@ class TemplateValidator:
         return None
 
     def _check_function_signature(self, func_name, args, keywords, path):
+
+        print(
+            f"Checking function signature for: {func_name} with args: {args} and keywords: {keywords}"
+        )  # Debugging line
+
         func = self.eval_scope[func_name]
-        keyword_names = [kw.arg for kw in keywords if kw.arg]
-        if len(keyword_names) != len(set(keyword_names)):
-            self.errors.append(ValidationError(path, "Duplicate keyword arguments in function call."))
-            return
+
+        print(f"Function found: {func}")  # Debugging line
 
         try:
             sig = inspect.signature(func)
             mock_args = [self._mock_value(arg) for arg in args]
             mock_kwargs = {kw.arg: self._mock_value(kw.value) for kw in keywords if kw.arg}
-
-            sig.bind(*mock_args, **mock_kwargs)
+            _ = sig.bind(*mock_args, **mock_kwargs)
 
         except TypeError as e:
             self.errors.append(
