@@ -1,0 +1,12 @@
+name: trans
+description: Transaction table with amounts and flags
+columns:
+  - name: id
+    dtype: str
+    description: id
+  - name: user_id
+    dtype: str
+    description: Unique identifier for each user
+  - name: amount
+    dtype: float
+    description: Amount of the transaction

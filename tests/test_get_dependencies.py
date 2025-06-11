@@ -23,25 +23,53 @@ def setup_virtual_project():
         output_dir = data_dir / "output"
         template_dir = root / "template"
         param_dir = root / "params"
+        schema_dir = root / "schemas"
 
         data_dir.mkdir()
         tables_dir.mkdir()
         output_dir.mkdir()
         template_dir.mkdir()
         param_dir.mkdir()
+        schema_dir.mkdir()
 
         # CSVファイルを配置
         pd.DataFrame({"user_id": [1, 2], "age": [25, 15]}).to_csv(tables_dir / "table_a.csv", index=False)
         pd.DataFrame({"user_id": [1, 2], "amount": [1500, 500]}).to_csv(tables_dir / "table_b.csv", index=False)
+
+        # スキーマファイル
+        schema_a = {
+            "name": "table_a",
+            "description": "User table",
+            "columns": [
+                {"name": "user_id", "dtype": "int", "description": "user id"},
+                {"name": "age", "dtype": "int", "description": "user age"},
+            ],
+        }
+        schema_b = {
+            "name": "table_b",
+            "description": "Transaction table",
+            "columns": [
+                {"name": "user_id", "dtype": "int", "description": "user id"},
+                {"name": "amount", "dtype": "float", "description": "transaction amount"},
+            ],
+        }
+        (schema_dir / "table_a.yaml").write_text(yaml.dump(schema_a))
+        (schema_dir / "table_b.yaml").write_text(yaml.dump(schema_b))
 
         # Template A
         template_a_content = """\
 processes:
   - name: process_a
     description: template A processes
-    tables:
-      - name: table_a
-        path: ../data/tables/table_a.csv
+    io:
+      inputs:
+        - name: table_a
+          type: csv
+          path: ../data/tables/table_a.csv
+          schema: table_a
+      outputs:
+        - name: table_a_filtered
+          path: ../data/output/table_a_processed.csv
     steps:
       - name: filter_users
         with: table_a
@@ -52,9 +80,6 @@ processes:
               age_bucket = age // 10 * 10
           - select: [user_id, log_age, age_bucket]
         as: table_a_filtered
-    dumps:
-      - output: table_a_filtered
-        path: ../data/output/table_a_processed.csv
 """
 
         (template_dir / "template_a.yaml").write_text(template_a_content)
@@ -66,11 +91,19 @@ depends:
 processes:
   - name: process_b
     description: template B processes
-    tables:
-      - name: table_a
-        path: ../data/output/table_a_processed.csv
-      - name: table_b
-        path: ../data/tables/table_b.csv
+    io:
+      inputs:
+        - name: table_a
+          type: csv
+          path: ../data/output/table_a_processed.csv
+          schema: table_a
+        - name: table_b
+          type: csv
+          path: ../data/tables/table_b.csv
+          schema: table_b
+      outputs:
+        - name: enriched
+          path: ../output/final_output.csv
     steps:
       - name: filter_transactions
         with: table_b
@@ -90,9 +123,6 @@ processes:
               high_value = amount > ${ params.threshold }
           - select: ${params.output_columns}
         as: enriched
-    dumps:
-      - output: enriched
-        path: ../output/final_output.csv
 """
 
         (template_dir / "template_b.yaml").write_text(template_b_content)
@@ -110,20 +140,17 @@ params:
 """
         (param_dir / "params.yaml").write_text(params_content)
 
-        yield {"template_dir": template_dir, "param_path": param_dir / "params.yaml"}
+        yield {"template_dir": template_dir, "param_dir": param_dir, "schema_dir": schema_dir}
 
 
 def test_pipeline_get_dependencies(setup_virtual_project):
-    pipeline = Pipeline.from_template_dir(
-        dirpath=str(setup_virtual_project["template_dir"]),
-        param_path=str(setup_virtual_project["param_path"]),
-        derive_func_paths=[],
-        transform_func_paths=[],
+    pipeline = Pipeline.from_setting(
+        template_dir=str(setup_virtual_project["template_dir"]),
+        param_dir=str(setup_virtual_project["param_dir"]),
+        schema_dir=str(setup_virtual_project["schema_dir"]),
+        derive_func_path=None,
+        transform_func_path=None,
     )
-
-    print("template dir:", setup_virtual_project["template_dir"])
-    print("template files:", list(Path(setup_virtual_project["template_dir"]).glob("*")))
-    print("param path:", setup_virtual_project["param_path"])
 
     deps = pipeline._get_dependencies()
 

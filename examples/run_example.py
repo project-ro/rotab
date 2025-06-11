@@ -10,10 +10,11 @@ here = Path(__file__).parent.resolve()
 
 # paths are relative to the current directory
 if __name__ == "__main__":
-    pipeline = Pipeline.from_template_dir(
-        dirpath="./config/templates",
-        param_path="./config/params/params.yaml",
-        derive_func_paths=["./custom_functions/derive_funcs.py"],
-        transform_func_paths=["./custom_functions/transform_funcs.py"],
+    pipeline = Pipeline.from_setting(
+        template_dir="./examples/config/templates",
+        param_dir="./examples/config/params",
+        schema_dir="./examples/config/schemas",
+        derive_func_path="./examples/custom_functions/derive_funcs.py",
+        transform_func_path="./examples/custom_functions/transform_funcs.py",
     )
     pipeline.run(execute=True, dag=True)

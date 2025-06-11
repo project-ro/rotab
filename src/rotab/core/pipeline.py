@@ -31,16 +31,16 @@ class Pipeline:
     def __init__(
         self,
         template: Dict[str, Any],
-        params: Dict[str, Any],
-        base_path: str,
-        derive_func_paths: list[str],
-        transform_func_paths: list[str],
+        schemas: Dict[str, Any],
+        template_dir: str,
+        derive_func_path: str,
+        transform_func_path: str,
     ):
         self.template = template
-        self.params = params
-        self.base_path = base_path
-        self.derive_func_paths = derive_func_paths
-        self.transform_func_paths = transform_func_paths
+        self.schemas = schemas
+        self.template_dir = template_dir
+        self.derive_func_path = derive_func_path
+        self.transform_func_path = transform_func_path
         self.eval_scope = {}
         for module in [derive_funcs, transform_funcs]:
             self.eval_scope.update({k: v for k, v in module.__dict__.items() if not k.startswith("__") and callable(v)})
@@ -71,7 +71,7 @@ class Pipeline:
             "import importlib.util",
             "import os",
         ]
-        for path in self.derive_func_paths + self.transform_func_paths:
+        for path in [self.derive_func_path] + [self.transform_func_path]:
             abs_path = os.path.abspath(path)
             module_name = os.path.splitext(os.path.basename(path))[0]
             lines.extend(
@@ -87,12 +87,12 @@ class Pipeline:
     def write_script(self, path: str):
         abs_path = os.path.abspath(path)
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-        script_generator = ScriptGenerator(self.template, self.params)
+        script_generator = ScriptGenerator(self.template, self.schemas)
         with open(abs_path, "w") as f:
             f.write(script_generator.generate_script())
 
     def execute_script(self, path: str):
-        result = subprocess.run(["python", path], cwd=self.base_path, capture_output=True, text=True)
+        result = subprocess.run(["python", path], cwd=self.template_dir, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"Script failed:\n{result.stderr}")
 
@@ -117,22 +117,27 @@ class Pipeline:
             proc_name = proc.get("name", f"process_{i}_{template_key}")
             proc_names.append(proc_name)
 
+            # プロセス同士の依存（直列）
             if i > 0:
                 prev_proc = processes[i - 1]
                 prev_proc_name = prev_proc.get("name", f"process_{i - 1}_{template_key}")
                 self._add_successor(successors, prev_proc_name, proc_name)
 
-            proc_to_step.setdefault(proc_name, [])
-            for tbl in proc.get("tables", []):
-                proc_to_step[proc_name].append(tbl["path"])
-            # for dump in proc.get("dumps", []):
-            #     return_var = dump.get("return")
-            #     output_path = dump.get("path")
-            #     if return_var and output_path:
-            #         proc_to_step[proc_name].append(output_path)
+            # === プロセス内のステップ列挙 ===
+            step_list = []
+
+            # 新構文: io.inputs → 入力ファイルパスを追加
+            io_config = proc.get("io", {})
+            for inp in io_config.get("inputs", []):
+                if "path" in inp:
+                    step_list.append(inp["path"])
+
+            # steps → ステップ名を追加
             for j, step in enumerate(proc.get("steps", [])):
                 step_name = step.get("name", f"step_{j}_{proc_name}")
-                proc_to_step[proc_name].append(step_name)
+                step_list.append(step_name)
+
+            proc_to_step[proc_name] = step_list
 
         return successors, proc_names, proc_to_step
 
@@ -142,37 +147,47 @@ class Pipeline:
         for i, proc in enumerate(processes):
             proc_name = proc.get("name", f"process_{i}_{template_key}")
             steps = proc.get("steps", [])
-            tables = proc.get("tables", [])
+            io_config = proc.get("io", {})
+            inputs = io_config.get("inputs", [])
 
+            # === ステップ間および入力との依存構築 ===
             for step_index, step in enumerate(steps):
                 step_name = step.get("name", f"step_{step_index}_{proc_name}")
 
+                vars_used = []
+
+                # transform に含まれる変数抽出
                 if "transform" in step:
                     rhs = step["transform"].split("=", 1)[-1].strip() if "=" in step["transform"] else ""
-                    used_vars = self._extract_variable_names(rhs)
-                    for var in used_vars:
-                        prev = self._find_prior_step_using_var(steps, step_index, var, proc_name, tables)
-                        if prev:
-                            self._add_successor(result, prev, step_name)
+                    vars_used += self._extract_variable_names(rhs)
 
-                elif "with" in step:
-                    with_var = step["with"]
-                    prev = self._find_prior_step_using_var(steps, step_index, with_var, proc_name, tables)
+                # with に含まれる変数抽出
+                if "with" in step:
+                    with_val = step["with"]
+                    if isinstance(with_val, list):
+                        vars_used += with_val
+                    elif isinstance(with_val, str):
+                        vars_used.append(with_val)
+
+                # 抽出された変数に対応する prior ステップ or 入力ファイルに依存を張る
+                for var in vars_used:
+                    prev = self._find_prior_step_using_var(steps, step_index, var, proc_name, inputs)
                     if prev:
                         self._add_successor(result, prev, step_name)
 
-            for dump in proc.get("dumps", []):
-                return_var = dump.get("output")
-                output_path = dump.get("path")
+            # === ステップ → ダンプファイル の依存構築 ===
+            for out in io_config.get("outputs", []):
+                return_var = out.get("name")
+                output_path = out.get("path")
                 if return_var and output_path:
-                    step_name = self._find_prior_step_using_var(steps, len(steps), return_var, proc_name, tables)
-                    if step_name:
-                        self._add_successor(result, step_name, output_path)
+                    source_step = self._find_prior_step_using_var(steps, len(steps), return_var, proc_name, inputs)
+                    if source_step:
+                        self._add_successor(result, source_step, output_path)
 
         return result
 
     def _find_prior_step_using_var(
-        self, steps: List[Dict[str, Any]], step_index: int, var: str, proc_name: str, tables: List[Dict[str, Any]]
+        self, steps: List[Dict[str, Any]], step_index: int, var: str, proc_name: str, inputs: List[Dict[str, Any]]
     ) -> str:
         # steps内を逆順に検索
         for k in range(step_index - 1, -1, -1):
@@ -181,14 +196,16 @@ class Pipeline:
             if "as" in prev and prev["as"] == var:
                 return name
 
-        # 見つからなければtablesから探す
-        for tbl in tables:
-            if tbl.get("name") == var:
-                return tbl.get("path")
+        # 見つからなければ inputs から探す
+        for inp in inputs:
+            if inp.get("name") == var:
+                return inp.get("path")
+
         return None
 
     def _extract_variable_names(self, expr: str) -> List[str]:
-        return re.findall(r"\b\w+\b", expr)
+        # 形式: key=var → var だけを抽出
+        return re.findall(r"\b\w+\s*=\s*(\w+)", expr)
 
     def _get_dependencies(self) -> Dict[str, Any]:
         template_successors = {}
@@ -197,9 +214,9 @@ class Pipeline:
         template_to_process = {}
         process_to_step = {}
 
-        print("base_path:", self.base_path)
+        print("template_dir:", self.template_dir)
 
-        templates = sorted(Path(self.base_path).glob("*.yaml"))
+        templates = sorted(Path(self.template_dir).glob("*.yaml"))
 
         assert templates, "No YAML templates found in the specified directory."
 
@@ -316,16 +333,14 @@ class Pipeline:
 
         return "\n".join(dag_lines)
 
-    def run(self, script_path: str, execute: bool, dag: bool = False):
-        abs_path = (
-            script_path if os.path.isabs(script_path) else os.path.abspath(os.path.join(self.base_path, script_path))
-        )
+    def run(self, execute: bool, dag: bool = False):
+        base_dir = os.path.join(self.template_dir, ".generated")
+        os.makedirs(base_dir, exist_ok=True)
+        abs_path = os.path.join(base_dir, "generated_script.py")
 
         if dag:
-            base, _ = os.path.splitext(abs_path)
-            mermaid_path = f"{base}.mmd"
+            mermaid_path = os.path.splitext(abs_path)[0] + ".mmd"
             mermaid_content = self.generate_dag()
-            os.makedirs(os.path.dirname(mermaid_path), exist_ok=True)
             with open(mermaid_path, "w", encoding="utf-8") as f:
                 f.write(mermaid_content)
 
@@ -335,15 +350,17 @@ class Pipeline:
             self.execute_script(abs_path)
 
     @classmethod
-    def from_template_dir(
+    def from_setting(
         cls,
-        dirpath: str,
-        param_path: str,
-        derive_func_paths: list[str],
-        transform_func_paths: list[str],
+        template_dir: str,
+        param_dir: str,
+        schema_dir: str,
+        derive_func_path: str,
+        transform_func_path: str,
     ):
-        params = cls._load_params(param_path)
-        templates = cls._load_templates_with_render(dirpath, params)
+        params = cls._load_params(param_dir)
+        schemas = cls._load_schemas(schema_dir)
+        templates = cls._load_templates_with_render(template_dir, params, schemas)
         resolved_order = cls._toposort_templates(templates)
 
         merged_template = {"processes": []}
@@ -352,16 +369,24 @@ class Pipeline:
 
         return cls(
             template=merged_template,
-            params=params,
-            base_path=dirpath,
-            derive_func_paths=derive_func_paths,
-            transform_func_paths=transform_func_paths,
+            schemas=schemas,
+            template_dir=template_dir,
+            derive_func_path=derive_func_path,
+            transform_func_path=transform_func_path,
         )
 
     @staticmethod
-    def _load_params(param_path: str) -> dict:
-        with open(param_path, "r") as f:
-            return yaml.safe_load(f) or {}
+    def _load_params(dirpath: str) -> dict:
+        settings = {}
+        for filename in os.listdir(dirpath):
+            if filename.endswith((".yaml", ".yml")):
+                full_path = os.path.join(dirpath, filename)
+                with open(full_path, "r") as f:
+                    content = yaml.safe_load(f) or {}
+                    if not isinstance(content, dict):
+                        raise ValueError(f"{filename} does not contain a dictionary at the top level.")
+                    settings.update(content)
+        return settings
 
     @staticmethod
     def _render_placeholders(template_str: str, params: dict) -> str:
@@ -378,17 +403,35 @@ class Pipeline:
         return re.sub(pattern, lambda m: resolve(m.group(1)), template_str)
 
     @staticmethod
-    def _load_templates_with_render(dirpath: str, params: dict) -> dict:
+    def _load_templates_with_render(dirpath: str, params: dict, schemas: dict) -> dict:
         templates = {}
         for filepath in glob.glob(os.path.join(dirpath, "*.yaml")):
             with open(filepath, "r") as f:
                 content = f.read()
                 rendered = Pipeline._render_placeholders(content, params)
                 cfg = yaml.safe_load(rendered) or {}
+                Pipeline._inject_schema_columns(cfg, schemas)
             name = os.path.basename(filepath)
             templates[name] = cfg
-
         return templates
+
+    @staticmethod
+    def _inject_schema_columns(cfg: dict, schemas: dict) -> None:
+        io_config = cfg.get("io", {})
+        for inp in io_config.get("inputs", []):
+            schema_name = inp.pop("schema", None)
+            if schema_name and schema_name in schemas:
+                inp["columns"] = schemas[schema_name]["columns"]
+
+    @staticmethod
+    def _load_schemas(schema_dir: str) -> dict:
+        schemas = {}
+        for filepath in glob.glob(os.path.join(schema_dir, "*.yaml")):
+            with open(filepath, "r") as f:
+                cfg = yaml.safe_load(f)
+                name = cfg.get("name") or os.path.splitext(os.path.basename(filepath))[0]
+                schemas[name] = cfg
+        return schemas
 
     @staticmethod
     def _toposort_templates(templates: dict[str, dict]) -> list[str]:

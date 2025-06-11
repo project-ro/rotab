@@ -37,9 +37,9 @@ class VariableToRowTransformer(ast.NodeTransformer):
 
 
 class ScriptGenerator:
-    def __init__(self, template: dict, params: object):
+    def __init__(self, template: dict, schemas: object):
         self.template = template
-        self.params = params
+        self.schemas = schemas
 
     def _get_common_import_lines(self):
         return [
@@ -150,13 +150,9 @@ class ScriptGenerator:
                     indent_depth += 1
                 name = table["name"]
                 path = table["path"]
+
                 # Generate dtype mapping from schema
-                dtype_map = {}
-                if self.params.get("schema", {}).get(name, {}).get("select", None):
-                    for col in self.params["schema"][name]["select"]:
-                        dtype = col.get("dtype")
-                        dtype_map[col["name"]] = dtype
-                        # Extend as needed for float, bool, etc.
+                dtype_map = {col["name"]: col.get("dtype") for col in self.schemas.get(name, {}).get("columns", [])}
                 if dtype_map:
                     dtype_str = "{" + ", ".join(f"'{k}': {v}" for k, v in dtype_map.items()) + "}"
                     func_lines.append(
