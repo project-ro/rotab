@@ -5,13 +5,7 @@ from rotab.core.operation.derive_funcs import *
 from rotab.core.operation.transform_funcs import *
 
 
-spec = importlib.util.spec_from_file_location('derive_funcs', r'/home/yutaitatsu/rotab/custom_functions/derive_funcs.py')
-custom_derive_funcs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(custom_derive_funcs)
-
-spec = importlib.util.spec_from_file_location('transform_funcs', r'/home/yutaitatsu/rotab/custom_functions/transform_funcs.py')
-custom_transform_funcs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(custom_transform_funcs)
+from custom_functions import derive_funcs, transform_funcs
 
 
 
@@ -38,8 +32,8 @@ def step_summarize_transactions_trans_summary(trans):
 
 def step_filter_users_main_transaction_enrichment(user):
     """Step: filter_users_main """
-    filtered_users = user.copy()
     if True:
+        filtered_users = user.copy()
         filtered_users = filtered_users.query('age > 18')
         filtered_users["log_age"] = filtered_users.apply(lambda row: log(row['age']), axis=1)
         filtered_users["age_bucket"] = filtered_users.apply(lambda row: row['age'] // 10 * 10, axis=1)
@@ -56,7 +50,6 @@ def step_filter_transactions_main_transaction_enrichment(trans):
 
 def step_merge_transactions_transaction_enrichment(filtered_users ,filtered_trans):
     """Step: merge_transactions """
-    enriched = filtered_users ,filtered_trans.copy()
     enriched = merge(left=filtered_users, right=filtered_trans, on='user_id')
     return enriched
 
@@ -88,7 +81,7 @@ def process_user_filter():
 def process_trans_summary():
     """Summarize transaction amounts"""
     # load tables
-    trans = pd.read_csv(r'../../data/transaction.csv', dtype={'id': str, 'user_id': str, 'amount': float})
+    trans = pd.read_csv(r'../../data/transaction.csv', dtype={'id': str, 'user_id': str, 'amount': int})
     # process steps
     filtered_transactions = step_summarize_transactions_trans_summary(trans)
     # dump output
@@ -103,7 +96,7 @@ def process_transaction_enrichment():
     """
     # load tables
     user = pd.read_csv(r'../../output/filtered_users.csv', dtype={'id': str, 'user_id': str, 'age': int, 'age_group': int})
-    trans = pd.read_csv(r'../../output/filtered_transactions.csv', dtype={'id': str, 'user_id': str, 'amount': float})
+    trans = pd.read_csv(r'../../output/filtered_transactions.csv', dtype={'id': str, 'user_id': str, 'amount': int})
     # process steps
     filtered_users = step_filter_users_main_transaction_enrichment(user)
     filtered_trans = step_filter_transactions_main_transaction_enrichment(trans)

@@ -8,5 +8,5 @@ columns:
     dtype: str
     description: Unique identifier for each user
   - name: amount
-    dtype: float
+    dtype: int
     description: Amount of the transaction

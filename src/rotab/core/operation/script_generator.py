@@ -84,7 +84,6 @@ class ScriptGenerator:
                 body = [textwrap.indent(f'"""Step: {step_name} """', INDENT)]
 
                 var_result = step["as"]
-                body.append(textwrap.indent(f"{var_result} = {var_string}.copy()", INDENT * indent_depth))
 
                 if "when" in step:
                     condition = step["when"]
@@ -92,6 +91,7 @@ class ScriptGenerator:
                     indent_depth += 1
 
                 if "mutate" in step:
+                    body.append(textwrap.indent(f"{var_result} = {var_string}.copy()", INDENT * indent_depth))
                     for sub in step["mutate"]:
                         if "filter" in sub:
                             body.append(
@@ -153,6 +153,7 @@ class ScriptGenerator:
 
                 # Generate dtype mapping from schema
                 dtype_map = {col["name"]: col.get("dtype") for col in self.schemas.get(name, {}).get("columns", [])}
+
                 if dtype_map:
                     dtype_str = "{" + ", ".join(f"'{k}': {v}" for k, v in dtype_map.items()) + "}"
                     func_lines.append(
@@ -203,15 +204,7 @@ class ScriptGenerator:
             process_funcs.append("\n".join(func_lines))
             main_calls.append(f"process_{process_name}()")
 
-        custom_imports = [
-            "spec = importlib.util.spec_from_file_location('derive_funcs', r'/home/yutaitatsu/rotab/custom_functions/derive_funcs.py')",
-            "custom_derive_funcs = importlib.util.module_from_spec(spec)",
-            "spec.loader.exec_module(custom_derive_funcs)",
-            "",
-            "spec = importlib.util.spec_from_file_location('transform_funcs', r'/home/yutaitatsu/rotab/custom_functions/transform_funcs.py')",
-            "custom_transform_funcs = importlib.util.module_from_spec(spec)",
-            "spec.loader.exec_module(custom_transform_funcs)",
-        ]
+        custom_imports = ["from custom_functions import derive_funcs, transform_funcs"]
 
         script_lines = (
             import_lines

@@ -7,6 +7,7 @@ import textwrap
 import re
 from pathlib import Path
 from typing import Dict, Any, List
+import shutil
 from rotab.core.operation.script_generator import ScriptGenerator
 from rotab.core.operation import derive_funcs, transform_funcs
 
@@ -85,8 +86,23 @@ class Pipeline:
         return lines
 
     def write_script(self, path: str):
+
         abs_path = os.path.abspath(path)
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+
+        # Create directories
+        base_generated_dir = os.path.join(self.template_dir, ".generated")
+        custom_func_dir = os.path.join(base_generated_dir, "custom_functions")
+        os.makedirs(custom_func_dir, exist_ok=True)
+
+        # Write custom function files
+        if self.derive_func_path:
+            shutil.copy2(self.derive_func_path, os.path.join(custom_func_dir, "derive_funcs.py"))
+
+        if self.transform_func_path:
+            shutil.copy2(self.transform_func_path, os.path.join(custom_func_dir, "transform_funcs.py"))
+
+        # Generate script content
         script_generator = ScriptGenerator(self.template, self.schemas)
         with open(abs_path, "w") as f:
             f.write(script_generator.generate_script())
@@ -336,7 +352,7 @@ class Pipeline:
     def run(self, execute: bool, dag: bool = False):
         base_dir = os.path.abspath(os.path.join(self.template_dir, ".generated"))
         os.makedirs(base_dir, exist_ok=True)
-        abs_path = os.path.join(base_dir, "generated_script.py")
+        abs_path = os.path.join(base_dir, "entrypoint.py")
 
         if dag:
             mermaid_path = os.path.splitext(abs_path)[0] + ".mmd"

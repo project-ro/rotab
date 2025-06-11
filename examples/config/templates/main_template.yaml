@@ -11,8 +11,8 @@ processes:
       inputs:
         - name: user
           type: csv
-          path: ../../output/filtered_users.csv
-          schema: user # optional, can be omitted if schema is same as the name
+          path: ../../output/filtered_users.csv # relative to this file path
+          schema: user # optional, corresponds to the schema in <schema_dir>/user.yaml
 
         - name: trans
           type: csv
