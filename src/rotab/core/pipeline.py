@@ -334,7 +334,7 @@ class Pipeline:
         return "\n".join(dag_lines)
 
     def run(self, execute: bool, dag: bool = False):
-        base_dir = os.path.join(self.template_dir, ".generated")
+        base_dir = os.path.abspath(os.path.join(self.template_dir, ".generated"))
         os.makedirs(base_dir, exist_ok=True)
         abs_path = os.path.join(base_dir, "generated_script.py")
 
@@ -360,7 +360,7 @@ class Pipeline:
     ):
         params = cls._load_params(param_dir)
         schemas = cls._load_schemas(schema_dir)
-        templates = cls._load_templates_with_render(template_dir, params, schemas)
+        templates = cls._load_templates_with_render(template_dir, params)
         resolved_order = cls._toposort_templates(templates)
 
         merged_template = {"processes": []}
@@ -403,25 +403,16 @@ class Pipeline:
         return re.sub(pattern, lambda m: resolve(m.group(1)), template_str)
 
     @staticmethod
-    def _load_templates_with_render(dirpath: str, params: dict, schemas: dict) -> dict:
+    def _load_templates_with_render(dirpath: str, params: dict) -> dict:
         templates = {}
         for filepath in glob.glob(os.path.join(dirpath, "*.yaml")):
             with open(filepath, "r") as f:
                 content = f.read()
                 rendered = Pipeline._render_placeholders(content, params)
                 cfg = yaml.safe_load(rendered) or {}
-                Pipeline._inject_schema_columns(cfg, schemas)
             name = os.path.basename(filepath)
             templates[name] = cfg
         return templates
-
-    @staticmethod
-    def _inject_schema_columns(cfg: dict, schemas: dict) -> None:
-        io_config = cfg.get("io", {})
-        for inp in io_config.get("inputs", []):
-            schema_name = inp.pop("schema", None)
-            if schema_name and schema_name in schemas:
-                inp["columns"] = schemas[schema_name]["columns"]
 
     @staticmethod
     def _load_schemas(schema_dir: str) -> dict:

@@ -173,7 +173,9 @@ class ScriptGenerator:
                     func_lines.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
                     indent_depth += 1
                 dfname, path = dump["name"], dump["path"]
-                schema = dump.get("schema")
+
+                schema_name = dump.get("schema")
+                schema = self.schemas.get(schema_name, {}).get("columns", []) if schema_name else None
 
                 dump_code = [
                     textwrap.indent(f"path = os.path.abspath(r'{path}')", INDENT * indent_depth),

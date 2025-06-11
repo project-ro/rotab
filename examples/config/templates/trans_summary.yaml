@@ -1,9 +1,13 @@
 processes:
   - name: trans_summary
     description: Summarize transaction amounts
-    tables:
-      - name: trans
-        path: ../../data/transaction.csv
+    io:
+      inputs:
+        - name: trans
+          path: ../../data/transaction.csv
+      outputs:
+        - name: filtered_transactions
+          path: ../../output/filtered_transactions.csv
     steps:
       - name: summarize_transactions
         with: trans
@@ -12,6 +16,3 @@ processes:
           - derive: is_large = amount > 5000
           - select: [user_id, amount, is_large]
         as: filtered_transactions
-    dumps:
-      - output: filtered_transactions
-        path: ../../output/filtered_transactions.csv
