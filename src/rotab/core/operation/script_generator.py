@@ -139,8 +139,10 @@ class ScriptGenerator:
             if description:
                 func_lines.append(textwrap.indent(f'"""{description}"""', INDENT))
 
+            # io
+
             func_lines.append(textwrap.indent("# load tables", INDENT))
-            for table in process.get("tables", []):
+            for table in process["io"]["inputs"]:
                 indent_depth = 1
                 if "when" in table:
                     condition = table["when"]
@@ -167,13 +169,14 @@ class ScriptGenerator:
             func_lines.extend(step_calls)
 
             func_lines.append(textwrap.indent("# dump output", INDENT))
-            for dump in process.get("dumps", []):
+
+            for dump in process["io"]["outputs"]:
                 indent_depth = 1
                 if "when" in dump:
                     condition = dump["when"]
                     func_lines.append(textwrap.indent(f"if {condition}:", INDENT * indent_depth))
                     indent_depth += 1
-                dfname, path = dump["output"], dump["path"]
+                dfname, path = dump["name"], dump["path"]
                 schema = dump.get("schema")
 
                 dump_code = [

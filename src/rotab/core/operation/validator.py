@@ -25,7 +25,7 @@ class TemplateValidator:
         self.config = config
         self.errors: List[ValidationError] = []
         self.allowed_top_keys = {"processes", "depends"}
-        self.required_keys = {"name", "tables", "steps", "dumps"}
+        self.required_keys = {"name", "io", "steps"}
         self.optional_keys = {"description"}
         self.eval_scope = self._build_eval_scope()
         self.seen_table_names = set()
@@ -66,8 +66,6 @@ class TemplateValidator:
         return scope
 
     def validate(self):
-        print("Validateの最初の文字")  # Debugging line
-
         for key in self.config:
             if key not in self.allowed_top_keys:
                 self.errors.append(
@@ -83,7 +81,6 @@ class TemplateValidator:
             self._validate_process(proc, f"processes[{i}]")
 
     def validate_depends(self):
-        print("Validating `depends`...")  # Debugging line
         if "depends" in self.config and not isinstance(self.config["depends"], list):
             self.errors.append(ValidationError("config.depends", "`depends` must be a list."))
             return
@@ -109,19 +106,27 @@ class TemplateValidator:
         if "name" in proc and not isinstance(proc["name"], str):
             self.errors.append(ValidationError(f"{path}.name", "`name` must be a string."))
 
-        if "tables" in proc:
-            self._validate_tables(proc["tables"], f"{path}.tables", seen_table_names)
-        if "steps" in proc:
-            table_names = {t["name"] for t in proc.get("tables", []) if isinstance(t, dict) and "name" in t}
-            self._validate_steps(proc["steps"], table_names, f"{path}.steps")
-        if "dumps" in proc:
-            self._validate_dumps(proc["dumps"], proc, f"{path}.dumps")
+        if "io" in proc:
+            if not isinstance(proc["io"], dict):
+                self.errors.append(ValidationError(f"{path}.io", "`io` must be a dict."))
+                return
+            if "inputs" not in proc["io"] or not isinstance(proc["io"]["inputs"], list):
+                self.errors.append(ValidationError(f"{path}.io.inputs", "`inputs` must be a list."))
+            if "outputs" not in proc["io"] or not isinstance(proc["io"]["outputs"], list):
+                self.errors.append(ValidationError(f"{path}.io.outputs", "`outputs` must be a list."))
 
-    def _validate_tables(self, tables: Any, path: str, seen_names: set):
-        if not isinstance(tables, list):
-            self.errors.append(ValidationError(path, "`tables` must be a list."))
+            self._validate_inputs(proc["io"]["inputs"], f"{path}.io.inputs", seen_table_names)
+            self._validate_outputs(proc["io"]["outputs"], proc, f"{path}.io.outputs")
+
+        if "steps" in proc:
+            table_names = {t["name"] for t in proc["io"]["inputs"] if isinstance(t, dict) and "name" in t}
+            self._validate_steps(proc["steps"], table_names, f"{path}.steps")
+
+    def _validate_inputs(self, inputs: Any, path: str, seen_names: set):
+        if not isinstance(inputs, list):
+            self.errors.append(ValidationError(path, "`inputs` must be a list."))
             return
-        for i, table in enumerate(tables):
+        for i, table in enumerate(inputs):
             if not isinstance(table, dict):
                 self.errors.append(ValidationError(f"{path}[{i}]", "Each table must be a dict."))
                 continue
@@ -385,34 +390,35 @@ class TemplateValidator:
             return 0
         return 0
 
-    def _validate_dumps(self, dumps: Any, proc: Dict[str, Any], path: str):
-        if not isinstance(dumps, list):
-            self.errors.append(ValidationError(path, "`dumps` must be a list."))
+    def _validate_outputs(self, outputs: Any, proc: Dict[str, Any], path: str):
+        if not isinstance(outputs, list):
+            self.errors.append(ValidationError(path, "`outputs` must be a list."))
             return
-        valid_returns = {t["name"] for t in proc.get("tables", []) if isinstance(t, dict)}
+        valid_returns = {t["name"] for t in proc["io"]["inputs"] if isinstance(t, dict)}
         for step in proc.get("steps", []):
             if "transform" in step:
                 lhs = step["transform"].split("=", 1)[0].strip()
                 valid_returns.add(lhs)
-        for i, dump in enumerate(dumps):
+        for i, dump in enumerate(outputs):
             p = f"{path}[{i}]"
-            if not isinstance(dump, dict) or set(dump.keys()) != {"output", "path"}:
-                self.errors.append(ValidationError(p, "`dumps` must have `output` and `path`."))
+            if not isinstance(dump, dict) or set(dump.keys()) != {"name", "path"}:
+                self.errors.append(ValidationError(p, "`outputs` must have `name` and `path`."))
                 continue
-            if dump["output"] not in valid_returns:
+            if dump["name"] not in valid_returns:
                 self.errors.append(
                     ValidationError(
-                        f"{p}.output", f"`output` must be in defined tables or transform results: `{dump['output']}`"
+                        f"{p}.name",
+                        f"`name` must be in defined inputs or transformed or mutated results: `{dump['name']}`",
                     )
                 )
             if not isinstance(dump["path"], str):
                 self.errors.append(ValidationError(f"{p}.path", "`path` must be a string."))
             elif re.search(r"[<>:\"|?*]", dump["path"]):
                 self.errors.append(ValidationError(f"{p}.path", "Invalid characters in path."))
-            if dump["output"] in self.seen_dump_names:
-                self.errors.append(ValidationError(f"{p}.output", f"Duplicate dump output `{dump['output']}`"))
+            if dump["name"] in self.seen_dump_names:
+                self.errors.append(ValidationError(f"{p}.name", f"Duplicate output name `{dump['name']}`"))
             else:
-                self.seen_dump_names.add(dump["output"])
+                self.seen_dump_names.add(dump["name"])
 
     def report(self):
         if self.errors:

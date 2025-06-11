@@ -4,15 +4,26 @@ depends:
 
 processes:
   - name: transaction_enrichment
+    description: |
+      This process enriches user transactions by filtering users based on age and
+      transactions based on amount, then merging the two datasets.
+    io:
+      inputs:
+        - name: user
+          type: csv
+          path: ../../output/filtered_users.csv
+          schema: user # optional, can be omitted if schema is same as the name
 
-    tables:
-      - name: user
-        path: ../../output/filtered_users.csv
-        schema: ${schema.user.columns}
+        - name: trans
+          type: csv
+          path: ../../output/filtered_transactions.csv
+          schema: trans
 
-      - name: trans
-        path: ../../output/filtered_transactions.csv
-        schema: ${schema.trans.columns}
+      outputs:
+        - name: final_output
+          type: csv
+          path: ../../output/final_output.csv
+          schema: final_output
 
     steps:
       - name: filter_users_main
@@ -44,8 +55,3 @@ processes:
               high_value = amount > 10000
           - select: ${params.enrich_transactions.columns}
         as: final_output
-
-    dumps:
-      - output: final_output
-        path: ../../output/final_output.csv
-        schema: ${schema.final_output.columns}
