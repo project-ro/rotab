@@ -60,14 +60,17 @@ class MutateStep(StepNode):
                         ast.parse(rhs, mode="eval")
                     except Exception:
                         raise ValueError(f"[{self.name}] Syntax error in RHS: {rhs!r}")
-                    df_columns[lhs] = "unknown"
                     available_vars.add(lhs)
+
             elif key == "select":
                 if not isinstance(value, list) or not all(isinstance(col, str) for col in value):
                     raise ValueError(f"[{self.name}] select must be a list of strings.")
+                if not df_columns:  # スキーマ未定義なら検証スキップ
+                    continue
                 for col in value:
                     if col not in df_columns:
                         raise ValueError(f"[{self.name}] select references undefined column: {col}")
+
             else:
                 raise ValueError(f"[{self.name}] Unknown mutate operation: {key}")
 
@@ -98,7 +101,12 @@ class MutateStep(StepNode):
 
             transformed = ScopeLimiter().visit(tree)
             ast.fix_missing_locations(transformed)
-            return ast.unparse(transformed)
+            unparsed_code = ast.unparse(transformed)
+
+            # ここで正規表現によってシングルクオートをダブルクオートに
+            double_quoted = re.sub(r"'([a-zA-Z0-9_]+)'", r'"\1"', unparsed_code)
+
+            return double_quoted
 
         except Exception as e:
             raise ValueError(f"[{self.name}] Failed to transform RHS '{rhs}': {e}")

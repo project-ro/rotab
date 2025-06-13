@@ -18,51 +18,74 @@ class ProcessNode(BaseModel):
     def validate(self, context: ValidationContext) -> None:
         defined_vars = set()
 
-        # validate inputs
+        # 1. 入力変数を available_vars と defined_vars に登録
         for inp in self.inputs:
             inp.validate(context)
             defined_vars.add(inp.name)
+            context.available_vars.add(inp.name)
 
-        # Check for output_var duplication before actual validation
+        # 2. ステップ出力名の重複チェックと available_vars への事前登録
         for step in self.steps:
             if step.output_var in defined_vars:
                 raise ValueError(f"[{step.name}] Variable '{step.output_var}' already defined.")
             defined_vars.add(step.output_var)
+            context.available_vars.add(step.output_var)  # ← ここが必須
 
-        # Now validate steps
+        # 3. ステップバリデーション
         for step in self.steps:
             step.validate(context)
 
-        # validate outputs
+        # 4. 出力変数の整合性確認
         for out in self.outputs:
             out.validate(context)
             if out.name not in defined_vars:
                 raise ValueError(f"[{self.name}] Output variable '{out.name}' is not defined in steps or inputs.")
 
     def generate_script(self, context: ValidationContext) -> List[str]:
-        lines: List[str] = []
+        step_funcs: List[str] = []
         body: List[str] = []
 
-        for inp in self.inputs:
-            body += inp.generate_script(context)
-
+        # Step functions first
         for step in self.steps:
-            body += step.generate_script(context)
+            func_name = f"step_{step.name}_{self.name}"
+            args = ", ".join(step.input_vars)
+            func_lines = [f"def {func_name}({args}):"]
+            inner = step.generate_script(context)
+            inner.append(f"return {step.output_var}")
+            func_lines += [textwrap.indent(line, INDENT) for line in inner]
+            step_funcs.extend(func_lines)
+            step_funcs.append("")
 
+        # Main process function
+        func_header = f"def {self.name}():"
+        lines = [func_header]
+        if self.description:
+            lines.append(textwrap.indent(f'"""{self.description.strip()}"""', INDENT))
+
+        # Load inputs
+        for inp in self.inputs:
+            lines += [textwrap.indent(line, INDENT) for line in inp.generate_script(context)]
+
+        # Call steps
+        for step in self.steps:
+            args = ", ".join(step.input_vars)
+            call_line = f"{step.output_var} = step_{step.name}_{self.name}({args})"
+            lines.append(textwrap.indent(call_line, INDENT))
+
+        # Output
         for out in self.outputs:
-            body += out.generate_script(context)
+            lines += [textwrap.indent(line, INDENT) for line in out.generate_script(context)]
 
         if self.outputs:
             return_vars = ", ".join([out.name for out in self.outputs])
-            body.append(f"return {return_vars}")
+            lines.append(textwrap.indent(f"return {return_vars}", INDENT))
 
-        lines.append(f"def {self.name}():")
-        if self.description:
-            docstring = textwrap.indent(f'"""{self.description.strip()}"""', INDENT)
-            lines.append(docstring)
-        lines.extend(textwrap.indent(line, INDENT) for line in body)
+        # Wrap everything in main
+        full_script = step_funcs + lines
+        main_wrapper = ['if __name__ == "__main__":']
+        main_wrapper.append(textwrap.indent(f"{self.name}()", INDENT))
 
-        return lines
+        return full_script + ["", *main_wrapper]
 
     def to_dict(self) -> dict:
         return {
