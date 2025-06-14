@@ -34,7 +34,7 @@ class MutateStep(StepNode):
         input_var: str,
         operations: List[Dict[str, Any]],
         output_var: Optional[str] = None,
-        when: Optional[str] = None,
+        when: Optional[Union[str, bool]] = None,
         lineno: Optional[int] = None,
     ):
         super().__init__(name, input_var, output_var, lineno)
@@ -101,7 +101,7 @@ class TransformStep(StepNode):
         function: str,
         kwargs: Dict[str, Any],
         output_var: str,
-        when: Optional[str] = None,
+        when: Optional[Union[str, bool]] = None,
         lineno: Optional[int] = None,
     ):
         super().__init__(name, input_vars, output_var, lineno)

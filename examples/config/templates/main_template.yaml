@@ -1,6 +1,8 @@
+name: main_template
+
 depends:
-  - user_filter.yaml
-  - trans_summary.yaml
+  - user_filter
+  - trans_summary
 
 processes:
   - name: transaction_enrichment

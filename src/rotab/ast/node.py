@@ -2,6 +2,7 @@
 from pydantic import BaseModel
 from typing import Optional, Any
 from abc import ABC, abstractmethod
+from pydantic import TypeAdapter
 
 
 class Node(BaseModel, ABC):
@@ -28,3 +29,7 @@ class Node(BaseModel, ABC):
 
     def __repr__(self):
         return f"<{self.__class__.__name__}(name={self.name!r}, lineno={self.lineno!r})>"
+
+    @classmethod
+    def from_dict(cls, data: dict, schema_manager=None):
+        return TypeAdapter(cls).validate_python(data, by_alias=True)

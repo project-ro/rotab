@@ -2,7 +2,7 @@ import os
 import tempfile
 import yaml
 import pytest
-from rotab.loader.parameter_resolver import ParameterResolver
+from rotab.loader import ParameterResolver
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def test_resolve_flat_keys(valid_param_dir):
     assert resolver.params["min_age"] == 18
     assert resolver.params["threshold"] == 100
     assert resolver.params["max_age"] == 65
-    assert resolver.resolve("${min_age}") == "18"
+    assert resolver.resolve("${min_age}") == 18
 
 
 def test_resolve_nested_structure(valid_param_dir):
@@ -43,7 +43,7 @@ def test_resolve_in_dict(valid_param_dir):
 
 def test_resolve_missing_key_raises(valid_param_dir):
     resolver = ParameterResolver(valid_param_dir)
-    with pytest.raises(ValueError, match="Parameter 'not_found' not found"):
+    with pytest.raises(KeyError, match="Parameter 'not_found' not found"):
         resolver.resolve("${not_found}")
 
 

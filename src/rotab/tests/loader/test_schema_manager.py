@@ -2,7 +2,7 @@ import os
 import tempfile
 import yaml
 import pytest
-from rotab.loader.schema_manager import SchemaManager
+from rotab.loader import SchemaManager
 from rotab.ast.context.validation_context import VariableInfo
 
 

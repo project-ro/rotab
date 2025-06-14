@@ -137,6 +137,6 @@ def test_template_node_generation(process: ProcessNode, expected_script: list[st
     )
 
     template.validate(context)
-    result = template.generate_scripts(context)
+    result = template.generate_script(context)
 
     assert result["transaction_enrichment"] == expected_script

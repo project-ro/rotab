@@ -36,14 +36,25 @@ class ParameterResolver:
         else:
             return obj
 
-    def _resolve_string(self, s: str) -> str:
-        def replace(match):
+    def _resolve_string(self, s: str) -> Any:
+        match = self.PARAM_PATTERN.fullmatch(s)
+        if match:
             key_path = match.group(1).split(".")
             value = self.params
             for key in key_path:
                 if not isinstance(value, dict) or key not in value:
-                    raise ValueError(f"Parameter '{match.group(1)}' not found in parameter files.")
+                    raise KeyError(f"Parameter '{match.group(1)}' not found in parameter files.")
                 value = value[key]
-            return str(value)
+            return value  # 型そのまま返す（リストならリスト）
+        else:
 
-        return self.PARAM_PATTERN.sub(replace, s)
+            def replace(m):
+                key_path = m.group(1).split(".")
+                value = self.params
+                for key in key_path:
+                    if not isinstance(value, dict) or key not in value:
+                        raise KeyError(f"Parameter '{m.group(1)}' not found in parameter files.")
+                    value = value[key]
+                return str(value)  # 部分展開はstrで埋め込む
+
+            return self.PARAM_PATTERN.sub(replace, s)

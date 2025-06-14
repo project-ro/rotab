@@ -4,15 +4,24 @@ from rotab.ast.io import InputNode, OutputNode
 from rotab.ast.step import StepNode
 from rotab.ast.context.validation_context import ValidationContext
 import textwrap
+from pydantic import TypeAdapter
 from rotab.ast.util import INDENT
+from rotab.ast.node import Node
+from rotab.ast.step import MutateStep, TransformStep
+from typing import Union
+
+STEP_TYPE_MAP = {
+    "mutate": MutateStep,
+    "transform": TransformStep,
+}
 
 
-class ProcessNode(BaseModel):
+class ProcessNode(Node):
     name: str
     description: Optional[str] = None
     inputs: List[InputNode] = Field(default_factory=list)
     outputs: List[OutputNode] = Field(default_factory=list)
-    steps: List[StepNode] = Field(default_factory=list)
+    steps: List[Union[MutateStep, TransformStep]] = Field(default_factory=list)
     lineno: Optional[int] = None
 
     def validate(self, context: ValidationContext) -> None:
@@ -96,3 +105,17 @@ class ProcessNode(BaseModel):
             "steps": [s.to_dict() for s in self.steps],
             "outputs": [o.to_dict() for o in self.outputs],
         }
+
+    @classmethod
+    def from_dict(cls, data: dict, schema_manager=None):
+        if "steps" in data:
+            steps = []
+            for step_dict in data["steps"]:
+                step_type = step_dict.get("type")
+                concrete_cls = STEP_TYPE_MAP.get(step_type)
+                if not concrete_cls:
+                    raise ValueError(f"Unknown or missing step type: {step_type}")
+                steps.append(concrete_cls.from_dict(step_dict, schema_manager))
+            data = dict(data)
+            data["steps"] = steps
+        return TypeAdapter(cls).validate_python(data, by_alias=True)

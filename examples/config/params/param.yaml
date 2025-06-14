@@ -1,8 +1,9 @@
-test: true
-min_age: 18
-enrich_transactions:
-  columns:
-    - "user_id"
-    - "log_age"
-    - "amount"
-    - "high_value"
+params:
+  test: true
+  min_age: 18
+  enrich_transactions:
+    columns:
+      - "user_id"
+      - "log_age"
+      - "amount"
+      - "high_value"

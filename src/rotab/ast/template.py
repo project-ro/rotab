@@ -2,9 +2,10 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from rotab.ast.process import ProcessNode
 from rotab.ast.context.validation_context import ValidationContext
+from rotab.ast.node import Node
 
 
-class TemplateNode(BaseModel):
+class TemplateNode(Node):
     name: str
     depends: List[str] = Field(default_factory=list)
     processes: List[ProcessNode] = Field(default_factory=list)
@@ -14,7 +15,7 @@ class TemplateNode(BaseModel):
         for process in self.processes:
             process.validate(context)
 
-    def generate_scripts(self, context: ValidationContext) -> dict:
+    def generate_script(self, context: ValidationContext) -> dict:
         """
         Returns a dict mapping process name to its script lines.
         Example:

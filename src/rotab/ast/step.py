@@ -5,10 +5,12 @@ import re
 import textwrap
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
+from abc import ABC, abstractmethod
+
 from rotab.ast.util import INDENT
 
 
-class StepNode(Node, BaseModel):
+class StepNode(Node):
     name: str
     input_vars: List[str] = Field(..., alias="input_vars")
     output_var: Optional[str] = None
@@ -20,7 +22,7 @@ class StepNode(Node, BaseModel):
 
 class MutateStep(StepNode):
     operations: List[Dict[str, Any]]
-    when: Optional[str] = None
+    when: Optional[Union[str, bool]] = None
 
     def validate(self, context: ValidationContext) -> None:
         available_vars = context.available_vars
@@ -137,7 +139,7 @@ class MutateStep(StepNode):
 
 class TransformStep(StepNode):
     expr: str
-    when: Optional[str] = None
+    when: Optional[Union[str, bool]] = None
 
     def validate(self, context: ValidationContext) -> None:
         def is_unsupported_syntax(expr: str) -> bool:

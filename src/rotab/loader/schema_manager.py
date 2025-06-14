@@ -23,7 +23,16 @@ class SchemaManager:
             raw_schema = yaml.safe_load(f)
 
         if "columns" in raw_schema:
-            return VariableInfo(type="dataframe", columns={col["name"]: col["dtype"] for col in raw_schema["columns"]})
+            columns = raw_schema["columns"]
+            if isinstance(columns, dict):
+                return VariableInfo(type="dataframe", columns=columns)
+            elif isinstance(columns, list):
+                return VariableInfo(
+                    type="dataframe",
+                    columns={col["name"]: col["dtype"] for col in columns},
+                )
+            else:
+                raise ValueError(f"Invalid columns format in {schema_path}")
         elif isinstance(raw_schema, dict):
             return VariableInfo(type="dataframe", columns=raw_schema)
         else:
