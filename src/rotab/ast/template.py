@@ -15,6 +15,9 @@ class TemplateNode(Node):
         for process in self.processes:
             process.validate(context)
 
+    def get_children(self) -> List[Node]:
+        return self.processes
+
     def generate_script(self, context: ValidationContext) -> dict:
         """
         Returns a dict mapping process name to its script lines.

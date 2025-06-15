@@ -45,6 +45,9 @@ class InputNode(IOBaseNode):
             return [f'{self.name} = pd.read_csv("{self.path}", dtype={repr(var_info.columns)})']
         return [f'{self.name} = pd.read_csv("{self.path}")']
 
+    def get_outputs(self) -> List[str]:
+        return [self.name]
+
 
 class OutputNode(IOBaseNode):
     def validate(self, context: ValidationContext) -> None:
@@ -70,3 +73,6 @@ class OutputNode(IOBaseNode):
         else:
             scripts.append(f'{self.name}.to_csv("{self.path}", index=False)')
         return scripts
+
+    def get_inputs(self) -> List[str]:
+        return [self.name]

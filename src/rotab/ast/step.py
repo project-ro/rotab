@@ -19,6 +19,12 @@ class StepNode(Node):
     def to_dict(self) -> dict:
         return self.dict(by_alias=True, exclude_none=True)
 
+    def get_inputs(self) -> List[str]:
+        return self.input_vars
+
+    def get_outputs(self) -> List[str]:
+        return [self.output_var] if self.output_var else []
+
 
 class MutateStep(StepNode):
     operations: List[Dict[str, Any]]

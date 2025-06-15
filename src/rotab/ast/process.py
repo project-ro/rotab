@@ -96,6 +96,15 @@ class ProcessNode(Node):
 
         return full_script + ["", *main_wrapper]
 
+    def get_children(self) -> List[Node]:
+        return self.inputs + self.steps + self.outputs
+
+    def get_inputs(self) -> List[str]:
+        return [inp.path for inp in self.inputs]
+
+    def get_outputs(self) -> List[str]:
+        return [out.path for out in self.outputs]
+
     def to_dict(self) -> dict:
         return {
             "type": "ProcessNode",

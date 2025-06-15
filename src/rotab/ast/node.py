@@ -1,6 +1,6 @@
 # src/rotab/ast/node.py
 from pydantic import BaseModel
-from typing import Optional, Any
+from typing import Optional, Any, List
 from abc import ABC, abstractmethod
 from pydantic import TypeAdapter
 
@@ -20,12 +20,33 @@ class Node(BaseModel, ABC):
     def generate_script(self, context: Any = None) -> Any:
         pass
 
+    def get_children(self) -> List["Node"]:
+        return []
+
+    def get_inputs(self) -> List[str]:
+        return []
+
+    def get_outputs(self) -> List[str]:
+        return []
+
     def to_dict(self) -> dict:
         return {
             "type": self.__class__.__name__,
             "name": self.name,
             "lineno": self.lineno,
         }
+
+    def get_dag_node_name(self) -> str:
+        prefix_map = {"TemplateNode": "T", "ProcessNode": "P", "StepNode": "S", "InputNode": "I", "OutputNode": "O"}
+        cls_name = self.__class__.__name__
+        prefix = prefix_map.get(cls_name, "NotSupported")
+        if hasattr(self, "path") and self.path:
+            filename = self.path.split("/")[-1] if isinstance(self.path, str) else self.path
+            return f"[{prefix}]{filename}"
+        elif self.name:
+            return f"[{prefix}]{self.name}"
+        else:
+            return f"[{prefix}]{id(self)}"
 
     def __repr__(self):
         return f"<{self.__class__.__name__}(name={self.name!r}, lineno={self.lineno!r})>"
