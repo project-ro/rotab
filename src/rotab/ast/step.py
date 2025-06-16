@@ -5,7 +5,6 @@ import re
 import textwrap
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
-from abc import ABC, abstractmethod
 
 from rotab.ast.util import INDENT
 
@@ -42,12 +41,13 @@ class MutateStep(StepNode):
         if var_info.type != "dataframe":
             raise ValueError(f"[{self.name}] `{input_var}` must be a dataframe.")
 
-        df_columns = var_info.columns
+        df_columns = var_info.columns.copy()
 
         for i, op in enumerate(self.operations):
             if not isinstance(op, dict) or len(op) != 1:
                 raise ValueError(f"[{self.name}] Operation #{i} must be a single-key dict.")
             key, value = next(iter(op.items()))
+
             if key == "filter":
                 try:
                     tree = ast.parse(value, mode="eval")
@@ -55,6 +55,7 @@ class MutateStep(StepNode):
                         raise ValueError
                 except Exception:
                     raise ValueError(f"[{self.name}] Invalid filter expression: {value!r}")
+
             elif key == "derive":
                 for lineno, line in enumerate(value.splitlines(), 1):
                     if not line.strip():
@@ -69,6 +70,7 @@ class MutateStep(StepNode):
                     except Exception:
                         raise ValueError(f"[{self.name}] Syntax error in RHS: {rhs!r}")
                     available_vars.add(lhs)
+                    df_columns[lhs] = "Any"  # select 検証用の暫定型
 
             elif key == "select":
                 if not isinstance(value, list) or not all(isinstance(col, str) for col in value):
@@ -176,7 +178,8 @@ class TransformStep(StepNode):
             raise ValueError(f"[{self.name}] Invalid Python expression in `transform`: {e}")
 
         available_vars.add(self.output_var)
-        schemas[self.output_var] = VariableInfo(type="dataframe", columns={})
+        if self.output_var not in schemas:
+            schemas[self.output_var] = VariableInfo(type="dataframe", columns={})
 
     def generate_script(self, context: ValidationContext = None) -> List[str]:
         line = f"{self.output_var} = {self.expr}"

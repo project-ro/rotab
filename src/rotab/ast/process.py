@@ -51,10 +51,19 @@ class ProcessNode(Node):
                 raise ValueError(f"[{self.name}] Output variable '{out.name}' is not defined in steps or inputs.")
 
     def generate_script(self, context: ValidationContext) -> List[str]:
-        step_funcs: List[str] = []
-        body: List[str] = []
+        # === Import section ===
+        imports = [
+            "import os",
+            "import pandas as pd",
+            "from rotab.core.operation.derive_funcs import *",
+            "from rotab.core.operation.transform_funcs import *",
+            "from custom_functions import derive_funcs, transform_funcs",
+            "",
+            "",
+        ]
 
-        # Step functions first
+        # === Step functions ===
+        step_funcs: List[str] = []
         for step in self.steps:
             func_name = f"step_{step.name}_{self.name}"
             args = ", ".join(step.input_vars)
@@ -63,38 +72,40 @@ class ProcessNode(Node):
             inner.append(f"return {step.output_var}")
             func_lines += [textwrap.indent(line, INDENT) for line in inner]
             step_funcs.extend(func_lines)
-            step_funcs.append("")
+            step_funcs.extend(["", ""])
 
-        # Main process function
+        if step_funcs and step_funcs[-1] != "":
+            step_funcs.extend(["", ""])
+
+        # === Main function ===
+        main_lines = []
         func_header = f"def {self.name}():"
-        lines = [func_header]
+        main_lines.append(func_header)
         if self.description:
-            lines.append(textwrap.indent(f'"""{self.description.strip()}"""', INDENT))
+            main_lines.append(textwrap.indent(f'"""{self.description.strip()}"""', INDENT))
 
-        # Load inputs
         for inp in self.inputs:
-            lines += [textwrap.indent(line, INDENT) for line in inp.generate_script(context)]
+            main_lines += [textwrap.indent(line, INDENT) for line in inp.generate_script(context)]
 
-        # Call steps
         for step in self.steps:
             args = ", ".join(step.input_vars)
             call_line = f"{step.output_var} = step_{step.name}_{self.name}({args})"
-            lines.append(textwrap.indent(call_line, INDENT))
+            main_lines.append(textwrap.indent(call_line, INDENT))
 
-        # Output
         for out in self.outputs:
-            lines += [textwrap.indent(line, INDENT) for line in out.generate_script(context)]
+            main_lines += [textwrap.indent(line, INDENT) for line in out.generate_script(context)]
 
         if self.outputs:
             return_vars = ", ".join([out.name for out in self.outputs])
-            lines.append(textwrap.indent(f"return {return_vars}", INDENT))
+            main_lines.append(textwrap.indent(f"return {return_vars}", INDENT))
 
-        # Wrap everything in main
-        full_script = step_funcs + lines
-        main_wrapper = ['if __name__ == "__main__":']
-        main_wrapper.append(textwrap.indent(f"{self.name}()", INDENT))
+        main_lines.extend(["", ""])
 
-        return full_script + ["", *main_wrapper]
+        # === Main entry point ===
+        main_wrapper = ['if __name__ == "__main__":', textwrap.indent(f"{self.name}()", INDENT), ""]
+
+        # === Final script ===
+        return imports + step_funcs + main_lines + main_wrapper
 
     def get_children(self) -> List[Node]:
         return self.inputs + self.steps + self.outputs

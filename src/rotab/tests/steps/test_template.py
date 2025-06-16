@@ -62,6 +62,15 @@ from rotab.ast.util import INDENT
                 ],
             ),
             [
+                # === Imports ===
+                "import os",
+                "import pandas as pd",
+                "from rotab.core.operation.derive_funcs import *",
+                "from rotab.core.operation.transform_funcs import *",
+                "from custom_functions import derive_funcs, transform_funcs",
+                "",
+                "",
+                # === Step 1 ===
                 "def step_filter_users_main_transaction_enrichment(user):",
                 INDENT + "filtered_users = user.copy()",
                 INDENT + "filtered_users = filtered_users.query('age > 18')",
@@ -71,21 +80,29 @@ from rotab.ast.util import INDENT
                 INDENT + 'filtered_users = filtered_users[["user_id", "log_age", "age_bucket"]]',
                 INDENT + "return filtered_users",
                 "",
+                "",
+                # === Step 2 ===
                 "def step_filter_transactions_main_transaction_enrichment(trans):",
                 INDENT + "filtered_trans = trans.copy()",
                 INDENT + "filtered_trans = filtered_trans.query('amount > 1000')",
                 INDENT + "return filtered_trans",
                 "",
+                "",
+                # === Step 3 ===
                 "def step_merge_transactions_transaction_enrichment(filtered_users, filtered_trans):",
                 INDENT + "enriched = merge(left=filtered_users, right=filtered_trans, on='user_id')",
                 INDENT + "return enriched",
                 "",
+                "",
+                # === Step 4 ===
                 "def step_enrich_transactions_transaction_enrichment(enriched):",
                 INDENT + "final_output = enriched.copy()",
                 INDENT + 'final_output["high_value"] = final_output.apply(lambda row: row["amount"] > 10000, axis=1)',
                 INDENT + 'final_output = final_output[["user_id", "log_age", "age_bucket", "high_value"]]',
                 INDENT + "return final_output",
                 "",
+                "",
+                # === Main function ===
                 "def transaction_enrichment():",
                 INDENT
                 + '"""This process enriches user transactions by filtering users based on age and\n    transactions based on amount, then merging the two datasets."""',
@@ -106,8 +123,11 @@ from rotab.ast.util import INDENT
                 + "final_output.to_csv(\"../../output/final_output.csv\", index=False, columns=['user_id', 'age', 'log_age', 'age_bucket', 'high_value'])",
                 INDENT + "return final_output",
                 "",
+                "",
+                # === Entry point ===
                 'if __name__ == "__main__":',
                 INDENT + "transaction_enrichment()",
+                "",
             ],
         )
     ],
@@ -122,6 +142,10 @@ def test_template_node_generation(process: ProcessNode, expected_script: list[st
             ),
             "trans": VariableInfo(
                 type="dataframe", columns={"user_id": "str", "age": "int", "log_age": "float", "age_bucket": "int"}
+            ),
+            "enriched": VariableInfo(
+                type="dataframe",
+                columns={"user_id": "str", "log_age": "float", "age_bucket": "int", "amount": "float"},
             ),
             "final_output": VariableInfo(
                 type="dataframe",

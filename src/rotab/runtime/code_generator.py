@@ -1,0 +1,78 @@
+# src/rotab/generator/code_generator.py
+
+import os
+from typing import List, Dict
+from rotab.ast.template import TemplateNode
+from rotab.ast.context.validation_context import ValidationContext
+from rotab.runtime.dag_generator import DagGenerator
+
+
+class CodeGenerator:
+    def __init__(self, templates: List[TemplateNode], context: ValidationContext):
+        self.templates = templates
+        self.context = context
+        self.dag = DagGenerator(templates)
+
+    def _resolve_template_order(self) -> List[TemplateNode]:
+        from collections import defaultdict, deque
+
+        edges = self.dag.build_template_edges()
+        name_to_tpl = {tpl.name: tpl for tpl in self.templates}
+
+        graph = defaultdict(list)
+        indegree = defaultdict(int)
+
+        for src, dst in edges:
+            graph[src.name].append(dst.name)
+            indegree[dst.name] += 1
+
+        for name in name_to_tpl:
+            indegree.setdefault(name, 0)
+
+        queue = deque([name for name in name_to_tpl if indegree[name] == 0])
+        sorted_names = []
+
+        while queue:
+            name = queue.popleft()
+            sorted_names.append(name)
+            for nbr in graph[name]:
+                indegree[nbr] -= 1
+                if indegree[nbr] == 0:
+                    queue.append(nbr)
+
+        if len(sorted_names) != len(name_to_tpl):
+            raise ValueError("Cyclic dependency detected among templates.")
+
+        return [name_to_tpl[name] for name in sorted_names]
+
+    def generate(self) -> Dict[str, Dict[str, List[str]]]:
+        """
+        Returns:
+            {
+                "template_name": {
+                    "process_name": [line1, line2, ...],
+                    ...
+                },
+                ...
+            }
+        """
+        result = {}
+        for template in self._resolve_template_order():
+            result[template.name] = template.generate_script(self.context)
+        return result
+
+    def write_all(self, output_dir: str) -> None:
+        """
+        Write scripts to output_dir/template_name/process_name.py
+        """
+        for template in self._resolve_template_order():
+            template_dir = os.path.join(output_dir, template.name)
+            os.makedirs(template_dir, exist_ok=True)
+
+            script_map = template.generate_script(self.context)
+
+            for process_name, lines in script_map.items():
+                path = os.path.join(template_dir, f"{process_name}.py")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(lines))
+                    f.write("\n")

@@ -1,4 +1,4 @@
-# src/rotab/ast/node.py
+import os
 from pydantic import BaseModel
 from typing import Optional, Any, List
 from abc import ABC, abstractmethod
@@ -41,7 +41,7 @@ class Node(BaseModel, ABC):
         cls_name = self.__class__.__name__
         prefix = prefix_map.get(cls_name, "NotSupported")
         if hasattr(self, "path") and self.path:
-            filename = self.path.split("/")[-1] if isinstance(self.path, str) else self.path
+            filename = os.path.basename(self.path)
             return f"[{prefix}]{filename}"
         elif self.name:
             return f"[{prefix}]{self.name}"

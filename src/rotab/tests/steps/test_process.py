@@ -21,10 +21,21 @@ from rotab.ast.util import INDENT
                 outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema=None)],
             ),
             [
+                # === Import block ===
+                "import os",
+                "import pandas as pd",
+                "from rotab.core.operation.derive_funcs import *",
+                "from rotab.core.operation.transform_funcs import *",
+                "from custom_functions import derive_funcs, transform_funcs",
+                "",
+                "",
+                # === Step function ===
                 "def step_step_merge_transaction_enrichment(user):",
                 INDENT + "result = transform_func(user)",
                 INDENT + "return result",
                 "",
+                "",
+                # === Main function ===
                 "def transaction_enrichment():",
                 INDENT
                 + "user = pd.read_csv(\"user.csv\", dtype={'user_id': 'str', 'age': 'int', 'log_age': 'float', 'age_bucket': 'int'})",
@@ -32,8 +43,11 @@ from rotab.ast.util import INDENT
                 INDENT + 'result.to_csv("result.csv", index=False)',
                 INDENT + "return result",
                 "",
+                "",
+                # === Entry point ===
                 'if __name__ == "__main__":',
                 INDENT + "transaction_enrichment()",
+                "",
             ],
         ),
     ],
