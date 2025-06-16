@@ -11,7 +11,7 @@ from rotab.ast.util import INDENT
 
 
 @pytest.fixture
-def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str]]:
+def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str], list[str]]:
     process = ProcessNode(
         name="full_process",
         inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="user")],
@@ -46,7 +46,7 @@ def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str]]:
         },
     )
 
-    expected = [
+    expected_process = [
         "import os",
         "import pandas as pd",
         "from rotab.core.operation.derive_funcs import *",
@@ -84,22 +84,34 @@ def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str]]:
         "",
     ]
 
-    return template, context, expected
+    expected_main = [
+        "import os",
+        "import sys",
+        "project_root = os.path.dirname(os.path.abspath(__file__))",
+        "sys.path.insert(0, project_root)",
+        "",
+        "from test_template.full_process import full_process",
+        "",
+        "",
+        "if __name__ == '__main__':",
+        INDENT + "full_process()",
+    ]
+    return template, context, expected_process, expected_main
 
 
 def test_code_generator_generate_exact(template_and_context):
-    template, context, expected = template_and_context
+    template, context, expected_process, _ = template_and_context
     generator = CodeGenerator([template], context)
 
     template.validate(context)
     result = generator.generate()
     actual = result["test_template"]["full_process"]
 
-    assert actual == expected
+    assert actual == expected_process
 
 
 def test_code_generator_write_all_exact(template_and_context):
-    template, context, expected = template_and_context
+    template, context, expected_process, expected_main = template_and_context
     generator = CodeGenerator([template], context)
 
     template.validate(context)
@@ -107,8 +119,14 @@ def test_code_generator_write_all_exact(template_and_context):
     with tempfile.TemporaryDirectory() as tmpdir:
         generator.write_all(tmpdir)
 
-        path = os.path.join(tmpdir, "test_template", "full_process.py")
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read().splitlines()
+        # check full_process.py
+        process_path = os.path.join(tmpdir, "test_template", "full_process.py")
+        with open(process_path, "r", encoding="utf-8") as f:
+            process_content = f.read().splitlines()
+        assert process_content == expected_process
 
-        assert content == expected
+        # check main.py
+        main_path = os.path.join(tmpdir, "main.py")
+        with open(main_path, "r", encoding="utf-8") as f:
+            main_content = f.read().splitlines()
+        assert main_content == expected_main

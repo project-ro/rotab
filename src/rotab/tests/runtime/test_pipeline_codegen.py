@@ -1,0 +1,83 @@
+import os
+import tempfile
+import textwrap
+import yaml
+import subprocess
+from typing import Tuple
+
+from rotab.runtime.pipeline import Pipeline
+
+
+def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:
+    # ディレクトリ構造作成
+    template_dir = os.path.join(tmpdir, "templates")
+    param_dir = os.path.join(tmpdir, "params")
+    schema_dir = os.path.join(tmpdir, "schemas")
+    os.makedirs(template_dir)
+    os.makedirs(param_dir)
+    os.makedirs(schema_dir)
+
+    # テンプレート定義
+    template = {
+        "name": "test_template",
+        "processes": [
+            {
+                "name": "test_process",
+                "io": {
+                    "inputs": [{"name": "input_df", "path": "input.csv", "schema": "test_schema"}],
+                    "outputs": [{"name": "output_df", "path": "output.csv", "schema": "test_schema"}],
+                },
+                "steps": [
+                    {"name": "dummy_step", "with": "input_df", "mutate": [{"filter": "value > 0"}], "as": "output_df"}
+                ],
+            }
+        ],
+    }
+    with open(os.path.join(template_dir, "template.yaml"), "w") as f:
+        yaml.dump(template, f)
+
+    # パラメータ定義
+    with open(os.path.join(param_dir, "params.yaml"), "w") as f:
+        yaml.dump({}, f)
+
+    # スキーマ定義
+    with open(os.path.join(schema_dir, "test_schema.yaml"), "w") as f:
+        yaml.dump({"columns": {"value": "int"}}, f)
+
+    # 関数定義
+    derive_path = os.path.join(tmpdir, "derive_funcs.py")
+    transform_path = os.path.join(tmpdir, "transform_funcs.py")
+
+    with open(derive_path, "w") as f:
+        f.write("def derive_func1(x): return x + 1\n")
+
+    with open(transform_path, "w") as f:
+        f.write("def transform_func1(df): return df[df['value'] > 0]\n")
+
+    return template_dir, param_dir, schema_dir, derive_path, transform_path
+
+
+def test_pipeline_codegen_outputs():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        template_dir, param_dir, schema_dir, derive_path, transform_path = setup_test_environment(tmpdir)
+        out_dir = os.path.join(tmpdir, "out")
+
+        # Pipeline実行（コード生成のみ）
+        pipeline = Pipeline.from_setting(
+            template_dir=template_dir,
+            param_dir=param_dir,
+            schema_dir=schema_dir,
+            derive_func_path=derive_path,
+            transform_func_path=transform_path,
+        )
+        pipeline.run(execute=False, dag=False, output_dir=out_dir)
+
+        # main.py の確認
+        main_path = os.path.join(out_dir, "main.py")
+        assert os.path.isfile(main_path), "main.py not found in output directory"
+
+        # プロセスコードファイルの確認（テンプレート名サブディレクトリ内）
+        template_name = "test_template"
+        process_file = "test_process.py"
+        process_path = os.path.join(out_dir, template_name, process_file)
+        assert os.path.isfile(process_path), f"{process_file} not found in {template_name} subdirectory"

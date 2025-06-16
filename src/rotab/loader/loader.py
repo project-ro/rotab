@@ -11,10 +11,10 @@ from rotab.ast.template import TemplateNode
 
 
 class Loader:
-    def __init__(self, template_dir: str, param_dir: str, schema_dir: str):
+    def __init__(self, template_dir: str, param_dir: str, schema_manager: SchemaManager):
         self.template_dir = template_dir
         self.param_resolver = ParameterResolver(param_dir)
-        self.schema_manager = SchemaManager(schema_dir)
+        self.schema_manager = schema_manager
 
     def load(self) -> List[TemplateNode]:
         templates = self._load_all_templates()

@@ -64,7 +64,10 @@ class CodeGenerator:
     def write_all(self, output_dir: str) -> None:
         """
         Write scripts to output_dir/template_name/process_name.py
+        Also generates output_dir/main.py that calls all processes in dependency order.
         """
+        all_calls = []
+
         for template in self._resolve_template_order():
             template_dir = os.path.join(output_dir, template.name)
             os.makedirs(template_dir, exist_ok=True)
@@ -76,3 +79,18 @@ class CodeGenerator:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write("\n".join(lines))
                     f.write("\n")
+                import_stmt = f"from {template.name}.{process_name} import {process_name}"
+                call_stmt = f"{process_name}()"
+                all_calls.append((import_stmt, call_stmt))
+
+        # main.py を生成
+        main_path = os.path.join(output_dir, "main.py")
+        with open(main_path, "w", encoding="utf-8") as f:
+            f.write("import os\nimport sys\n")
+            f.write("project_root = os.path.dirname(os.path.abspath(__file__))\n")
+            f.write("sys.path.insert(0, project_root)\n\n")
+            for import_stmt, _ in all_calls:
+                f.write(import_stmt + "\n")
+            f.write("\n\nif __name__ == '__main__':\n")
+            for _, call_stmt in all_calls:
+                f.write(f"    {call_stmt}\n")

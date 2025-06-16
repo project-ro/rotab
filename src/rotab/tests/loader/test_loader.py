@@ -5,6 +5,7 @@ import yaml
 import pytest
 
 from rotab.loader import Loader
+from rotab.loader.schema_manager import SchemaManager
 
 
 @pytest.fixture
@@ -108,7 +109,8 @@ def test_loader_abnormal_cases(temp_dirs, filename, template_content, expected_e
             f.write(template_content)
     write_yaml(os.path.join(param_dir, "params.yaml"), {})
     write_yaml(os.path.join(schema_dir, "user.yaml"), {"columns": {"user_id": "str"}})
-    loader = Loader(template_dir, param_dir, schema_dir)
+    schema_manager = SchemaManager(schema_dir)
+    loader = Loader(template_dir, param_dir, schema_manager)
     with pytest.raises(expected_error, match=match_msg):
         loader.load()
 
@@ -280,7 +282,9 @@ def test_loader_full_features_with_depends_macro_and_param(temp_dirs):
         },
     )
 
-    loader = Loader(template_dir, param_dir, schema_dir)
+    schema_manager = SchemaManager(schema_dir)
+
+    loader = Loader(template_dir, param_dir, schema_manager)
     result = loader.load()
 
     # 依存順で返る
