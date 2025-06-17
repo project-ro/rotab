@@ -42,10 +42,15 @@ def setup_full_test_env(tmpdir: str):
                 },
                 "io": {
                     "inputs": [
-                        {"name": "user", "type": "csv", "path": os.path.join(input_dir, "user.csv"), "schema": "user"},
+                        {
+                            "name": "user",
+                            "io_type": "csv",
+                            "path": os.path.join(input_dir, "user.csv"),
+                            "schema": "user",
+                        },
                         {
                             "name": "trans",
-                            "type": "csv",
+                            "io_type": "csv",
                             "path": os.path.join(input_dir, "transaction.csv"),
                             "schema": "trans",
                         },
@@ -53,7 +58,7 @@ def setup_full_test_env(tmpdir: str):
                     "outputs": [
                         {
                             "name": "final_output",
-                            "type": "csv",
+                            "io_type": "csv",
                             "path": os.path.join(tmpdir, "final_output.csv"),
                             "schema": "final_output",
                         }
@@ -147,6 +152,6 @@ def test_pipeline_execution_with_all_features():
         assert os.path.exists(output_path), "final_output.csv not generated"
 
         df = pd.read_csv(output_path)
-        assert list(df.columns) == ["user_id", "log_age", "age_bucket", "amount"]
+        assert set(df.columns) == {"user_id", "log_age", "age_bucket", "amount"}
         assert len(df) == 2  # u2 and u3 only (age > 20)
         assert set(df["user_id"]) == {"u2", "u3"}

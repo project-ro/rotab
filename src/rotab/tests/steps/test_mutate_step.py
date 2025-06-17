@@ -35,7 +35,7 @@ def dummy_context():
             ),
             [
                 "filtered_user = user.copy()",
-                "filtered_user = filtered_user.query('age > 20')",
+                "filtered_user = filtered_user.query('age > 20').copy()",
                 'filtered_user["log_age"] = filtered_user.apply(lambda row: log(row["age"]), axis=1)',
                 'filtered_user["age_bucket"] = filtered_user.apply(lambda row: row["age"] // 10 * 10, axis=1)',
                 'filtered_user = filtered_user[["user_id", "log_age", "age_bucket"]]',
@@ -52,7 +52,7 @@ def dummy_context():
             [
                 "if params.test:",
                 f"{INDENT}u2 = user.copy()",
-                f"{INDENT}u2 = u2.query('age > 20')",
+                f"{INDENT}u2 = u2.query('age > 20').copy()",
             ],
         ),
     ],

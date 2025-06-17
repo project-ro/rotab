@@ -67,13 +67,14 @@ from rotab.ast.util import INDENT
                 "import pandas as pd",
                 "from rotab.core.operation.derive_funcs import *",
                 "from rotab.core.operation.transform_funcs import *",
-                "from custom_functions import derive_funcs, transform_funcs",
+                "from custom_functions.derive_funcs import *",
+                "from custom_functions.transform_funcs import *",
                 "",
                 "",
                 # === Step 1 ===
                 "def step_filter_users_main_transaction_enrichment(user):",
                 INDENT + "filtered_users = user.copy()",
-                INDENT + "filtered_users = filtered_users.query('age > 18')",
+                INDENT + "filtered_users = filtered_users.query('age > 18').copy()",
                 INDENT + 'filtered_users["log_age"] = filtered_users.apply(lambda row: log(row["age"]), axis=1)',
                 INDENT
                 + 'filtered_users["age_bucket"] = filtered_users.apply(lambda row: row["age"] // 10 * 10, axis=1)',
@@ -84,7 +85,7 @@ from rotab.ast.util import INDENT
                 # === Step 2 ===
                 "def step_filter_transactions_main_transaction_enrichment(trans):",
                 INDENT + "filtered_trans = trans.copy()",
-                INDENT + "filtered_trans = filtered_trans.query('amount > 1000')",
+                INDENT + "filtered_trans = filtered_trans.query('amount > 1000').copy()",
                 INDENT + "return filtered_trans",
                 "",
                 "",

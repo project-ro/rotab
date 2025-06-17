@@ -139,7 +139,7 @@ class MutateStep(StepNode):
         for op in self.operations:
             for key, value in op.items():
                 if key == "filter":
-                    lines.append(f"{var_result} = {var_result}.query('{value}')")
+                    lines.append(f"{var_result} = {var_result}.query('{value}').copy()")
                 elif key == "derive":
                     for line in value.split("\n"):
                         lhs, rhs = map(str.strip, line.split("=", 1))

@@ -58,7 +58,8 @@ class ProcessNode(Node):
             "import pandas as pd",
             "from rotab.core.operation.derive_funcs import *",
             "from rotab.core.operation.transform_funcs import *",
-            "from custom_functions import derive_funcs, transform_funcs",
+            "from custom_functions.derive_funcs import *",
+            "from custom_functions.transform_funcs import *",
             "",
             "",
         ]
