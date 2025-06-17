@@ -1,19 +1,17 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from rotab.ast.io import InputNode, OutputNode
-from rotab.ast.step import StepNode
+from rotab.ast.io_node import InputNode, OutputNode
+from rotab.ast.step_node import StepNode
 from rotab.ast.context.validation_context import ValidationContext
 import textwrap
 from pydantic import TypeAdapter
 from rotab.ast.util import INDENT
 from rotab.ast.node import Node
-from rotab.ast.step import MutateStep, TransformStep
+from rotab.ast.step_node import MutateStep, TransformStep
 from typing import Union
+from typing import Annotated
 
-STEP_TYPE_MAP = {
-    "mutate": MutateStep,
-    "transform": TransformStep,
-}
+StepUnion = Annotated[Union[MutateStep, TransformStep], Field(discriminator="type")]
 
 
 class ProcessNode(Node):
@@ -21,13 +19,14 @@ class ProcessNode(Node):
     description: Optional[str] = None
     inputs: List[InputNode] = Field(default_factory=list)
     outputs: List[OutputNode] = Field(default_factory=list)
-    steps: List[Union[MutateStep, TransformStep]] = Field(default_factory=list)
+    steps: List[StepUnion]
     lineno: Optional[int] = None
 
     def validate(self, context: ValidationContext) -> None:
         defined_vars = set()
 
         # 1. 入力変数を available_vars と defined_vars に登録
+        print(f"DEBUG: Validating ProcessNode '{self.name}' with inputs: {[inp.name for inp in self.inputs]}")
         for inp in self.inputs:
             inp.validate(context)
             defined_vars.add(inp.name)
@@ -35,12 +34,13 @@ class ProcessNode(Node):
 
         # 2. ステップ出力名の重複チェックと available_vars への事前登録
         for step in self.steps:
-            if step.output_var in defined_vars:
-                raise ValueError(f"[{step.name}] Variable '{step.output_var}' already defined.")
-            defined_vars.add(step.output_var)
-            context.available_vars.add(step.output_var)  # ← ここが必須
+            for var in step.output_vars:
+                if var in defined_vars:
+                    raise ValueError(f"[{step.name}] Variable '{var}' already defined.")
+            defined_vars.update(step.output_vars)
+            context.available_vars.update(step.output_vars)
 
-        # 3. ステップバリデーション
+        # 3. ステップバリデーション（input_vars が available_vars に含まれるかなどをチェック）
         for step in self.steps:
             step.validate(context)
 
@@ -51,6 +51,7 @@ class ProcessNode(Node):
                 raise ValueError(f"[{self.name}] Output variable '{out.name}' is not defined in steps or inputs.")
 
     def generate_script(self, context: ValidationContext) -> List[str]:
+
         # === Import section ===
         imports = [
             "import os",
@@ -69,7 +70,12 @@ class ProcessNode(Node):
             args = ", ".join(step.input_vars)
             func_lines = [f"def {func_name}({args}):"]
             inner = step.generate_script(context)
-            inner.append(f"return {step.output_var}")
+
+            return_line = (
+                f"return {step.output_vars[0]}" if len(step.output_vars) == 1 else f"return {tuple(step.output_vars)}"
+            )
+            inner.append(return_line)
+
             func_lines += [textwrap.indent(line, INDENT) for line in inner]
             step_funcs.extend(func_lines)
             step_funcs.extend(["", ""])
@@ -89,14 +95,17 @@ class ProcessNode(Node):
 
         for step in self.steps:
             args = ", ".join(step.input_vars)
-            call_line = f"{step.output_var} = step_{step.name}_{self.name}({args})"
+            assign_lhs = step.output_vars[0] if len(step.output_vars) == 1 else f"{tuple(step.output_vars)}"
+            call_line = f"{assign_lhs} = step_{step.name}_{self.name}({args})"
             main_lines.append(textwrap.indent(call_line, INDENT))
 
         for out in self.outputs:
             main_lines += [textwrap.indent(line, INDENT) for line in out.generate_script(context)]
 
         if self.outputs:
-            return_vars = ", ".join([out.name for out in self.outputs])
+            return_vars = (
+                self.outputs[0].name if len(self.outputs) == 1 else ", ".join(out.name for out in self.outputs)
+            )
             main_lines.append(textwrap.indent(f"return {return_vars}", INDENT))
 
         main_lines.extend(["", ""])
@@ -125,17 +134,3 @@ class ProcessNode(Node):
             "steps": [s.to_dict() for s in self.steps],
             "outputs": [o.to_dict() for o in self.outputs],
         }
-
-    @classmethod
-    def from_dict(cls, data: dict, schema_manager=None):
-        if "steps" in data:
-            steps = []
-            for step_dict in data["steps"]:
-                step_type = step_dict.get("type")
-                concrete_cls = STEP_TYPE_MAP.get(step_type)
-                if not concrete_cls:
-                    raise ValueError(f"Unknown or missing step type: {step_type}")
-                steps.append(concrete_cls.from_dict(step_dict, schema_manager))
-            data = dict(data)
-            data["steps"] = steps
-        return TypeAdapter(cls).validate_python(data, by_alias=True)

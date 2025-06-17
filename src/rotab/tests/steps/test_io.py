@@ -1,5 +1,5 @@
 import pytest
-from rotab.ast.io import InputNode, OutputNode
+from rotab.ast.io_node import InputNode, OutputNode
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 
 

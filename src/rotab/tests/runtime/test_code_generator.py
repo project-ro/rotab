@@ -2,10 +2,10 @@ import os
 import tempfile
 import pytest
 from rotab.runtime.code_generator import CodeGenerator
-from rotab.ast.template import TemplateNode
-from rotab.ast.process import ProcessNode
-from rotab.ast.io import InputNode, OutputNode
-from rotab.ast.step import MutateStep, TransformStep
+from rotab.ast.template_node import TemplateNode
+from rotab.ast.process_node import ProcessNode
+from rotab.ast.io_node import InputNode, OutputNode
+from rotab.ast.step_node import MutateStep, TransformStep
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from rotab.ast.util import INDENT
 
@@ -24,10 +24,10 @@ def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str], 
                     {"derive": "log_age = log(age)\nage_bucket = age // 10"},
                     {"select": ["user_id", "log_age", "age_bucket"]},
                 ],
-                output_var="mutated",
+                output_vars=["mutated"],
             ),
             TransformStep(
-                name="transform_step", input_vars=["mutated"], expr="transform_func(mutated)", output_var="result"
+                name="transform_step", input_vars=["mutated"], expr="transform_func(mutated)", output_vars=["result"]
             ),
         ],
         outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema="result")],

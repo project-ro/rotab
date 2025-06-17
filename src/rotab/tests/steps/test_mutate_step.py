@@ -1,8 +1,22 @@
 import pytest
 import ast
 from typing import List
-from rotab.ast.step import MutateStep
+from rotab.ast.step_node import MutateStep
+from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from rotab.tests.conftest import INDENT
+
+
+def dummy_context():
+    return ValidationContext(
+        available_vars={"user"},
+        schemas={
+            "user": VariableInfo(
+                type="dataframe",
+                columns={"user_id": "str", "age": "int", "log_age": "float", "age_bucket": "int"},
+            )
+        },
+        eval_scope={},
+    )
 
 
 @pytest.mark.parametrize(
@@ -17,7 +31,7 @@ from rotab.tests.conftest import INDENT
                     {"derive": "log_age = log(age)\nage_bucket = age // 10 * 10"},
                     {"select": ["user_id", "log_age", "age_bucket"]},
                 ],
-                output_var="filtered_user",
+                output_vars=["filtered_user"],
             ),
             [
                 "filtered_user = user.copy()",
@@ -32,7 +46,7 @@ from rotab.tests.conftest import INDENT
                 name="with_when",
                 input_vars=["user"],
                 operations=[{"filter": "age > 20"}],
-                output_var="u2",
+                output_vars=["u2"],
                 when="params.test",
             ),
             [
@@ -43,8 +57,8 @@ from rotab.tests.conftest import INDENT
         ),
     ],
 )
-def test_mutate_step_generate_script(base_context, step: MutateStep, expected: List[str]):
-    step.validate(base_context)
+def test_mutate_step_generate_script(step: MutateStep, expected: List[str]):
+    step.validate(dummy_context())
     script = step.generate_script()
 
     def normalize_code(code_lines: List[str]) -> str:
@@ -52,9 +66,7 @@ def test_mutate_step_generate_script(base_context, step: MutateStep, expected: L
 
     def ast_equal(code1: str, code2: str) -> bool:
         try:
-            tree1 = ast.parse(code1)
-            tree2 = ast.parse(code2)
-            return ast.dump(tree1) == ast.dump(tree2)
+            return ast.dump(ast.parse(code1)) == ast.dump(ast.parse(code2))
         except SyntaxError:
             return False
 
@@ -65,49 +77,53 @@ def test_mutate_step_generate_script(base_context, step: MutateStep, expected: L
     "filter_expr",
     ["", "age >>", "age = 20"],
 )
-def test_mutate_step_invalid_filter(base_context, filter_expr: str):
-    step = MutateStep(name="bad_filter", input_vars=["user"], operations=[{"filter": filter_expr}])
-    with pytest.raises(ValueError, match="Invalid filter expression"):
-        step.validate(base_context)
+def test_mutate_step_invalid_filter(filter_expr: str):
+    step = MutateStep(
+        name="bad_filter", input_vars=["user"], operations=[{"filter": filter_expr}], output_vars=["dummy"]
+    )
+    with pytest.raises(ValueError, match=r"\[bad_filter\] Invalid filter expression:"):
+        step.validate(dummy_context())
 
 
 @pytest.mark.parametrize(
     "derive_line, match",
     [
-        ("= log(age)", "Invalid LHS"),
-        ("log_age == log(age)", "malformed '='"),
-        ("123abc = log(age)", "Invalid LHS"),
-        ("log_age = log(", "Syntax error"),
+        ("= log(age)", r"\[bad_derive\] Invalid LHS in derive:"),
+        ("log_age == log(age)", r"\[bad_derive\] derive line \d+: malformed '='"),
+        ("123abc = log(age)", r"\[bad_derive\] Invalid LHS in derive:"),
+        ("log_age = log(", r"\[bad_derive\] Syntax error in RHS:"),
     ],
 )
-def test_mutate_step_invalid_derive(base_context, derive_line: str, match: str):
-    step = MutateStep(name="bad_derive", input_vars=["user"], operations=[{"derive": derive_line}])
+def test_mutate_step_invalid_derive(derive_line: str, match: str):
+    step = MutateStep(
+        name="bad_derive", input_vars=["user"], operations=[{"derive": derive_line}], output_vars=["dummy"]
+    )
     with pytest.raises(ValueError, match=match):
-        step.validate(base_context)
+        step.validate(dummy_context())
 
 
 @pytest.mark.parametrize(
     "select, match",
     [
-        ("user_id", "select must be a list"),
-        (["user_id", 123], "select must be a list of strings"),
-        (["nonexistent_col"], "undefined column"),
+        ("user_id", r"\[bad_select\] select must be a list of strings"),
+        (["user_id", 123], r"\[bad_select\] select must be a list of strings"),
+        (["nonexistent_col"], r"\[bad_select\] select references undefined column:"),
     ],
 )
-def test_mutate_step_invalid_select(base_context, select, match: str):
-    step = MutateStep(name="bad_select", input_vars=["user"], operations=[{"select": select}])
+def test_mutate_step_invalid_select(select, match: str):
+    step = MutateStep(name="bad_select", input_vars=["user"], operations=[{"select": select}], output_vars=["dummy"])
     with pytest.raises(ValueError, match=match):
-        step.validate(base_context)
+        step.validate(dummy_context())
 
 
 @pytest.mark.parametrize(
     "op, match",
     [
-        ({"filter": "x", "derive": "y = z"}, "must be a single-key dict"),
-        ({"unknown": "x"}, "Unknown mutate operation"),
+        ({"filter": "x", "derive": "y = z"}, r"\[bad_op\] Operation #0 must be a single-key dict"),
+        ({"unknown": "x"}, r"\[bad_op\] Unknown mutate operation:"),
     ],
 )
-def test_mutate_step_invalid_operation_structure(base_context, op, match: str):
-    step = MutateStep(name="bad_op", input_vars=["user"], operations=[op])
+def test_mutate_step_invalid_operation_structure(op, match: str):
+    step = MutateStep(name="bad_op", input_vars=["user"], operations=[op], output_vars=["dummy"])
     with pytest.raises(ValueError, match=match):
-        step.validate(base_context)
+        step.validate(dummy_context())

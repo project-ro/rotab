@@ -1,18 +1,19 @@
 from typing import List, Optional, Any, Dict, Union, Callable
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field
+from typing import Literal
 import ast
 import re
 import textwrap
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
-
 from rotab.ast.util import INDENT
 
 
 class StepNode(Node):
     name: str
-    input_vars: List[str] = Field(..., alias="input_vars")
-    output_var: Optional[str] = None
+    type: str
+    input_vars: List[str] = Field(..., alias="input_vars")  # `with` is renamed to `input_vars`
+    output_vars: List[str] = Field(..., alias="output_vars")  # 修正①: 必須のList型
     lineno: Optional[int] = None
 
     def to_dict(self) -> dict:
@@ -22,26 +23,34 @@ class StepNode(Node):
         return self.input_vars
 
     def get_outputs(self) -> List[str]:
-        return [self.output_var] if self.output_var else []
+        return self.output_vars  # 修正②: 不要なネストを削除
 
 
 class MutateStep(StepNode):
+    type: Literal["mutate"] = "mutate"
     operations: List[Dict[str, Any]]
     when: Optional[Union[str, bool]] = None
 
     def validate(self, context: ValidationContext) -> None:
+
         available_vars = context.available_vars
         schemas = context.schemas
 
         input_var = self.input_vars[0]
-        if input_var not in schemas:
-            raise ValueError(f"[{self.name}] `{input_var}` is not defined in schemas.")
 
-        var_info = schemas[input_var]
-        if var_info.type != "dataframe":
-            raise ValueError(f"[{self.name}] `{input_var}` must be a dataframe.")
+        print(f"DEBUG: {self.name} input_var = {input_var}")
+        print(f"DEBUG: context.schemas = {schemas}")
 
-        df_columns = var_info.columns.copy()
+        if input_var in schemas:
+            var_info = schemas[input_var]
+            if var_info.type != "dataframe":
+                raise ValueError(f"[{self.name}] `{input_var}` must be a dataframe.")
+            df_columns = var_info.columns.copy()
+        else:
+            print(f"DEBUG: input_var '{input_var}' not found in schemas, assuming empty dataframe.")
+            df_columns = {}
+
+        print(f"DEBUG: {self.name} df_columns = {df_columns}")
 
         for i, op in enumerate(self.operations):
             if not isinstance(op, dict) or len(op) != 1:
@@ -70,19 +79,26 @@ class MutateStep(StepNode):
                     except Exception:
                         raise ValueError(f"[{self.name}] Syntax error in RHS: {rhs!r}")
                     available_vars.add(lhs)
-                    df_columns[lhs] = "Any"  # select 検証用の暫定型
+                    df_columns[lhs] = "str"  # 暫定スキーマ
 
             elif key == "select":
                 if not isinstance(value, list) or not all(isinstance(col, str) for col in value):
                     raise ValueError(f"[{self.name}] select must be a list of strings.")
-                if not df_columns:  # スキーマ未定義なら検証スキップ
+                if not df_columns:
                     continue
                 for col in value:
                     if col not in df_columns:
+                        # BUG
                         raise ValueError(f"[{self.name}] select references undefined column: {col}")
-
             else:
                 raise ValueError(f"[{self.name}] Unknown mutate operation: {key}")
+
+        for out in self.output_vars:
+            available_vars.add(out)
+            if out not in schemas:
+                schemas[out] = VariableInfo(type="dataframe", columns=df_columns.copy())
+
+        print(f"DEBUG: {self.name} output schema = {schemas}")
 
     def _rewrite_rhs_with_row(self, rhs: str) -> str:
         try:
@@ -112,18 +128,13 @@ class MutateStep(StepNode):
             transformed = ScopeLimiter().visit(tree)
             ast.fix_missing_locations(transformed)
             unparsed_code = ast.unparse(transformed)
-
-            # ここで正規表現によってシングルクオートをダブルクオートに
-            double_quoted = re.sub(r"'([a-zA-Z0-9_]+)'", r'"\1"', unparsed_code)
-
-            return double_quoted
-
+            return re.sub(r"'([a-zA-Z0-9_]+)'", r'"\1"', unparsed_code)
         except Exception as e:
             raise ValueError(f"[{self.name}] Failed to transform RHS '{rhs}': {e}")
 
     def generate_script(self, context: ValidationContext = None) -> List[str]:
         var = self.input_vars[0]
-        var_result = self.output_var or var
+        var_result = self.output_vars[0] if self.output_vars else var
         lines = [f"{var_result} = {var}.copy()"]
         for op in self.operations:
             for key, value in op.items():
@@ -139,13 +150,11 @@ class MutateStep(StepNode):
                 elif key == "select":
                     cols = ", ".join([f'"{col}"' for col in value])
                     lines.append(f"{var_result} = {var_result}[[{cols}]]")
-
-        if self.when:
-            return [f"if {self.when}:"] + [textwrap.indent(line, INDENT) for line in lines]
-        return lines
+        return [f"if {self.when}:", *[textwrap.indent(line, INDENT) for line in lines]] if self.when else lines
 
 
 class TransformStep(StepNode):
+    type: Literal["transform"] = "transform"
     expr: str
     when: Optional[Union[str, bool]] = None
 
@@ -177,12 +186,11 @@ class TransformStep(StepNode):
         except SyntaxError as e:
             raise ValueError(f"[{self.name}] Invalid Python expression in `transform`: {e}")
 
-        available_vars.add(self.output_var)
-        if self.output_var not in schemas:
-            schemas[self.output_var] = VariableInfo(type="dataframe", columns={})
+        for out in self.output_vars:  # 修正③: 全出力を反映
+            available_vars.add(out)
+            if out not in schemas:
+                schemas[out] = VariableInfo(type="dataframe", columns={})
 
     def generate_script(self, context: ValidationContext = None) -> List[str]:
-        line = f"{self.output_var} = {self.expr}"
-        if self.when:
-            return [f"if {self.when}:", textwrap.indent(line, INDENT)]
-        return [line]
+        line = f"{self.output_vars[0]} = {self.expr}"  # 修正④: 最初の出力に代入
+        return [f"if {self.when}:", textwrap.indent(line, INDENT)] if self.when else [line]

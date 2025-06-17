@@ -1,10 +1,11 @@
 from pydantic import BaseModel
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 
 class IOBaseNode(Node):
+    name: str
     io_type: str
     path: str
     schema: Optional[str] = None
@@ -22,6 +23,8 @@ class IOBaseNode(Node):
 
 
 class InputNode(IOBaseNode):
+    type: Literal["input"] = "input"
+
     def validate(self, context: ValidationContext) -> None:
         if self.io_type != "csv":
             raise ValueError(f"[{self.name}] Only 'csv' type is supported, got: {self.io_type}")
@@ -35,6 +38,8 @@ class InputNode(IOBaseNode):
             context.schemas[self.name] = VariableInfo(type="dataframe", columns=schema_info.columns.copy())
         else:
             context.schemas[self.name] = VariableInfo(type="dataframe", columns={})
+
+        print(f"DEBUG: InputNode '{self.name}' validated with context: {context}")
 
     def generate_script(self, context: ValidationContext) -> List[str]:
         var_info = context.schemas.get(self.name)
@@ -50,6 +55,8 @@ class InputNode(IOBaseNode):
 
 
 class OutputNode(IOBaseNode):
+    type: Literal["output"] = "output"
+
     def validate(self, context: ValidationContext) -> None:
         if self.io_type != "csv":
             raise ValueError(f"[{self.name}] Only 'csv' type is supported, got: {self.io_type}")

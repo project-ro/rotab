@@ -6,6 +6,8 @@ import pytest
 
 from rotab.loader import Loader
 from rotab.loader.schema_manager import SchemaManager
+from rotab.ast.step_node import MutateStep
+from rotab.ast.io_node import InputNode
 
 
 @pytest.fixture
@@ -87,8 +89,8 @@ def write_yaml(path, content):
                     {
                         "name": "p",
                         "io": {
-                            "inputs": [{"name": "x", "type": "csv", "path": "x.csv", "schema": "not_found"}],
-                            "outputs": [{"name": "y", "type": "csv", "path": "y.csv", "schema": "not_found"}],
+                            "inputs": [{"name": "x", "io_type": "csv", "path": "x.csv", "schema": "not_found"}],
+                            "outputs": [{"name": "y", "io_type": "csv", "path": "y.csv", "schema": "not_found"}],
                         },
                         "steps": [],
                     }
@@ -151,9 +153,9 @@ def test_loader_full_features_with_depends_macro_and_param(temp_dirs):
                 {
                     "name": "user_filter_proc",
                     "io": {
-                        "inputs": [{"name": "user", "type": "csv", "path": "user.csv", "schema": "user"}],
+                        "inputs": [{"name": "user", "io_type": "csv", "path": "user.csv", "schema": "user"}],
                         "outputs": [
-                            {"name": "filtered_users", "type": "csv", "path": "filtered.csv", "schema": "user"}
+                            {"name": "filtered_users", "io_type": "csv", "path": "filtered.csv", "schema": "user"}
                         ],
                     },
                     "steps": [
@@ -179,9 +181,14 @@ def test_loader_full_features_with_depends_macro_and_param(temp_dirs):
                 {
                     "name": "trans_summary_proc",
                     "io": {
-                        "inputs": [{"name": "trans", "type": "csv", "path": "trans.csv", "schema": "trans"}],
+                        "inputs": [{"name": "trans", "io_type": "csv", "path": "trans.csv", "schema": "trans"}],
                         "outputs": [
-                            {"name": "filtered_trans", "type": "csv", "path": "filtered_trans.csv", "schema": "trans"}
+                            {
+                                "name": "filtered_trans",
+                                "io_type": "csv",
+                                "path": "filtered_trans.csv",
+                                "schema": "trans",
+                            }
                         ],
                     },
                     "steps": [
@@ -225,13 +232,13 @@ def test_loader_full_features_with_depends_macro_and_param(temp_dirs):
                         "inputs": [
                             {
                                 "name": "user",
-                                "type": "csv",
+                                "io_type": "csv",
                                 "path": "../../output/filtered_users.csv",
                                 "schema": "user",
                             },
                             {
                                 "name": "trans",
-                                "type": "csv",
+                                "io_type": "csv",
                                 "path": "../../output/filtered_transactions.csv",
                                 "schema": "trans",
                             },
@@ -239,7 +246,7 @@ def test_loader_full_features_with_depends_macro_and_param(temp_dirs):
                         "outputs": [
                             {
                                 "name": "final_output",
-                                "type": "csv",
+                                "io_type": "csv",
                                 "path": "../../output/final_output.csv",
                                 "schema": "final_output",
                             }
@@ -293,7 +300,10 @@ def test_loader_full_features_with_depends_macro_and_param(temp_dirs):
     # main_templateのASTチェック
     tpl = result[2]
     proc = tpl.processes[0]
+    i0 = proc.inputs[0]
+    assert isinstance(i0, InputNode)
     s0 = proc.steps[0]
+    assert isinstance(s0, MutateStep)
     assert s0.name == "filter_users_main"
     assert s0.operations[0]["filter"] == "age > 18"
     assert "log_age = log(age)" in s0.operations[1]["derive"]
@@ -307,6 +317,6 @@ def test_loader_full_features_with_depends_macro_and_param(temp_dirs):
     assert s2.expr == "merge(left=filtered_users, right=filtered_trans, on='user_id')"
     # enrich_macroの展開
     s3 = proc.steps[3]
-    assert s3.name == "enrich_step"
+    assert s3.name == "enrich_macro_use"
     assert "high_value = amount > 10000" in s3.operations[0]["derive"]
     assert s3.operations[1]["select"] == ["user_id", "log_age", "amount", "high_value"]

@@ -1,8 +1,6 @@
-# src/rotab/generator/code_generator.py
-
 import os
 from typing import List, Dict
-from rotab.ast.template import TemplateNode
+from rotab.ast.template_node import TemplateNode
 from rotab.ast.context.validation_context import ValidationContext
 from rotab.runtime.dag_generator import DagGenerator
 

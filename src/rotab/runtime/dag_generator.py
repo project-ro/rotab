@@ -1,22 +1,16 @@
 from typing import List, Tuple, Optional, Dict, Type
-from rotab.ast.template import TemplateNode
-from rotab.ast.process import ProcessNode
-from rotab.ast.step import StepNode
+from rotab.ast.template_node import TemplateNode
+from rotab.ast.process_node import ProcessNode
+from rotab.ast.step_node import StepNode
 from rotab.ast.node import Node
-
-TYPE_MAP = {
-    "TemplateNode": TemplateNode,
-    "ProcessNode": ProcessNode,
-    "StepNode": StepNode,
-}
 
 
 class DagGenerator:
     def __init__(self, templates: List[TemplateNode]):
         self.templates = templates
 
-    def build_step_edges(self, nodes: List["Node"]) -> List[Tuple["Node", "Node"]]:
-        edges: List[Tuple["Node", "Node"]] = []
+    def build_step_edges(self, nodes: List[Node]) -> List[Tuple[Node, Node]]:
+        edges: List[Tuple[Node, Node]] = []
 
         for idx, node in enumerate(nodes):
             for inp in node.get_inputs():
@@ -31,7 +25,7 @@ class DagGenerator:
         edges = []
 
         for tpl in self.templates:
-            for dep_name in tpl.depends:
+            for dep_name in getattr(tpl, "depends", []):
                 dep_tpl = name_to_template.get(dep_name)
                 if dep_tpl:
                     edges.append((dep_tpl, tpl))

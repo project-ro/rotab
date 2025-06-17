@@ -7,7 +7,7 @@ from rotab.loader.parameter_resolver import ParameterResolver
 from rotab.loader.macro_expander import MacroExpander
 from rotab.loader.schema_manager import SchemaManager
 
-from rotab.ast.template import TemplateNode
+from rotab.ast.template_node import TemplateNode
 
 
 class Loader:
@@ -18,6 +18,11 @@ class Loader:
 
     def load(self) -> List[TemplateNode]:
         templates = self._load_all_templates()
+
+        print("DEBUG: Loaded templates:")
+        for tpl in templates:
+            print(tpl)
+
         sorted_templates = self._resolve_dependencies(templates)
         return [self._to_node(t) for t in sorted_templates]
 
@@ -31,32 +36,37 @@ class Loader:
                     if not isinstance(raw, dict):
                         raise ValueError(f"Invalid YAML format in {filename}")
 
-                    macro_applied = self._replace_with_key(deepcopy(raw))
+                    global_macros = raw.get("macros", {})
 
-                    global_macros = macro_applied.get("macros", {})
-
-                    if "processes" in macro_applied:
-                        for process in macro_applied["processes"]:
-                            # --- ここでスキーマ存在チェック ---
+                    if "processes" in raw:
+                        for process in raw["processes"]:
+                            # --- スキーマ存在チェック ---
                             for io_section in ("inputs", "outputs"):
                                 for io_def in process.get("io", {}).get(io_section, []):
                                     schema_name = io_def.get("schema")
                                     if schema_name:
                                         self.schema_manager.get_schema(schema_name)
-                            # --------------------------------
+                            # --------------------------
 
                             macro_definitions = process.get("macros", global_macros)
                             expander = MacroExpander(macro_definitions)
                             if "steps" in process:
                                 process["steps"] = expander.expand(process["steps"])
-                                # type付与＋フィールド名リネーム
-                                process["steps"] = [self._preprocess_step_dict(step) for step in process["steps"]]
                             if "macros" in process:
                                 del process["macros"]
-                        if "macros" in macro_applied:
-                            del macro_applied["macros"]
+                        if "macros" in raw:
+                            del raw["macros"]
 
-                    resolved = self.param_resolver.resolve(macro_applied)
+                    # `with` → `input_vars` に変換（Macro展開後に実施）
+                    normalized = self._replace_with_key(raw)
+
+                    # type付与＋フィールド名変換（mutate→operations等）
+                    for process in normalized.get("processes", []):
+                        process = self._preprocess_io_dict(process)
+                        if "steps" in process:
+                            process["steps"] = [self._preprocess_step_dict(step) for step in process["steps"]]
+
+                    resolved = self.param_resolver.resolve(normalized)
                     resolved["__filename__"] = filename
                     templates.append(resolved)
         return templates
@@ -74,15 +84,31 @@ class Loader:
             raise ValueError(f"Step `{step.get('name', '<unnamed>')}` must contain either 'mutate' or 'transform'.")
         return step
 
+    def _preprocess_io_dict(self, process: dict) -> dict:
+        io = process.pop("io", {"inputs": [], "outputs": []})
+
+        for io_key in ("inputs", "outputs"):
+            io_list = io.get(io_key, [])
+            for io_def in io_list:
+                io_def.setdefault("type", "input" if io_key == "inputs" else "output")
+                io_def.setdefault("path", "")
+                io_def.setdefault("schema", "")
+                if "name" not in io_def:
+                    raise ValueError(
+                        f"Missing `name` in {io_key} definition of process `{process.get('name', '<unnamed>')}`"
+                    )
+            process[io_key] = io_list
+
+        return process
+
     def _replace_with_key(self, obj):
         if isinstance(obj, dict):
             new_dict = {}
             for k, v in obj.items():
                 if k == "with":
-                    if isinstance(v, str):
-                        new_dict["input_vars"] = [v]
-                    else:
-                        new_dict["input_vars"] = v
+                    new_dict["input_vars"] = [v] if isinstance(v, str) else v
+                elif k == "as":
+                    new_dict["output_vars"] = [v] if isinstance(v, str) else v
                 else:
                     new_dict[k] = self._replace_with_key(v)
             return new_dict

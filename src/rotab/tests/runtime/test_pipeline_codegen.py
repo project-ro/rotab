@@ -24,8 +24,8 @@ def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:
             {
                 "name": "test_process",
                 "io": {
-                    "inputs": [{"name": "input_df", "path": "input.csv", "schema": "test_schema"}],
-                    "outputs": [{"name": "output_df", "path": "output.csv", "schema": "test_schema"}],
+                    "inputs": [{"name": "input_df", "io_type": "csv", "path": "input.csv", "schema": "input_df"}],
+                    "outputs": [{"name": "output_df", "io_type": "csv", "path": "output.csv", "schema": "output_df"}],
                 },
                 "steps": [
                     {"name": "dummy_step", "with": "input_df", "mutate": [{"filter": "value > 0"}], "as": "output_df"}
@@ -41,7 +41,10 @@ def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:
         yaml.dump({}, f)
 
     # スキーマ定義
-    with open(os.path.join(schema_dir, "test_schema.yaml"), "w") as f:
+    with open(os.path.join(schema_dir, "input_df.yaml"), "w") as f:
+        yaml.dump({"columns": {"value": "int"}}, f)
+
+    with open(os.path.join(schema_dir, "output_df.yaml"), "w") as f:
         yaml.dump({"columns": {"value": "int"}}, f)
 
     # 関数定義

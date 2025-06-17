@@ -1,4 +1,4 @@
-from typing import Dict, Callable, Set
+from typing import Dict, Callable, Set, Optional
 from pydantic import BaseModel, Field
 
 
@@ -8,6 +8,8 @@ class VariableInfo(BaseModel):
 
 
 class ValidationContext(BaseModel):
+    derive_func_path: Optional[str] = None
+    transform_func_path: Optional[str] = None
     available_vars: Set[str]
     eval_scope: Dict[str, Callable]
     schemas: Dict[str, VariableInfo]

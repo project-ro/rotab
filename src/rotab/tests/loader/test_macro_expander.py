@@ -37,7 +37,7 @@ def macro_definitions():
             ],
             [
                 {
-                    "name": "filter_step",
+                    "name": "filter_users_macro",
                     "with": "user",
                     "mutate": [
                         {"filter": "age > 30"},

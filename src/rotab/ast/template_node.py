@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from rotab.ast.process import ProcessNode
+from rotab.ast.process_node import ProcessNode
 from rotab.ast.context.validation_context import ValidationContext
 from rotab.ast.node import Node
 
@@ -28,8 +28,10 @@ class TemplateNode(Node):
             }
         """
         script_map = {}
+
         for process in self.processes:
             script_map[process.name] = process.generate_script(context)
+
         return script_map
 
     def to_dict(self) -> dict:

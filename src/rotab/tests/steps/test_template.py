@@ -1,8 +1,8 @@
 import pytest
-from rotab.ast.template import TemplateNode
-from rotab.ast.process import ProcessNode
-from rotab.ast.io import InputNode, OutputNode
-from rotab.ast.step import MutateStep, TransformStep
+from rotab.ast.template_node import TemplateNode
+from rotab.ast.process_node import ProcessNode
+from rotab.ast.io_node import InputNode, OutputNode
+from rotab.ast.step_node import MutateStep, TransformStep
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from rotab.ast.util import INDENT
 
@@ -29,7 +29,7 @@ from rotab.ast.util import INDENT
                             {"derive": "log_age = log(age)\nage_bucket = age // 10 * 10"},
                             {"select": ["user_id", "log_age", "age_bucket"]},
                         ],
-                        output_var="filtered_users",
+                        output_vars=["filtered_users"],
                     ),
                     MutateStep(
                         name="filter_transactions_main",
@@ -37,13 +37,13 @@ from rotab.ast.util import INDENT
                         operations=[
                             {"filter": "amount > 1000"},
                         ],
-                        output_var="filtered_trans",
+                        output_vars=["filtered_trans"],
                     ),
                     TransformStep(
                         name="merge_transactions",
                         input_vars=["filtered_users", "filtered_trans"],
                         expr="merge(left=filtered_users, right=filtered_trans, on='user_id')",
-                        output_var="enriched",
+                        output_vars=["enriched"],
                     ),
                     MutateStep(
                         name="enrich_transactions",
@@ -52,7 +52,7 @@ from rotab.ast.util import INDENT
                             {"derive": "high_value = amount > 10000"},
                             {"select": ["user_id", "log_age", "age_bucket", "high_value"]},
                         ],
-                        output_var="final_output",
+                        output_vars=["final_output"],
                     ),
                 ],
                 outputs=[

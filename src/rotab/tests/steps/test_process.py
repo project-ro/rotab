@@ -1,7 +1,7 @@
 import pytest
-from rotab.ast.process import ProcessNode
-from rotab.ast.io import InputNode, OutputNode
-from rotab.ast.step import TransformStep
+from rotab.ast.process_node import ProcessNode
+from rotab.ast.io_node import InputNode, OutputNode
+from rotab.ast.step_node import TransformStep
 from rotab.ast.context.validation_context import ValidationContext
 from rotab.ast.util import INDENT
 
@@ -15,7 +15,7 @@ from rotab.ast.util import INDENT
                 inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="user")],
                 steps=[
                     TransformStep(
-                        name="step_merge", input_vars=["user"], expr="transform_func(user)", output_var="result"
+                        name="step_merge", input_vars=["user"], expr="transform_func(user)", output_vars=["result"]
                     )
                 ],
                 outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema=None)],
@@ -68,7 +68,7 @@ def test_process_node_duplicate_var_error(base_context: ValidationContext):
                 name="step_dup",
                 input_vars=["user"],
                 expr="transform_func(user)",
-                output_var="user",  # Duplicate
+                output_vars=["user"],  # Duplicate
             )
         ],
         outputs=[],

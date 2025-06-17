@@ -1,7 +1,7 @@
 import pytest
 import ast
 import textwrap
-from rotab.ast.step import TransformStep
+from rotab.ast.step_node import TransformStep
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from rotab.tests.conftest import INDENT
 
@@ -14,7 +14,7 @@ from rotab.tests.conftest import INDENT
                 name="transform_merge",
                 input_vars=["df1", "df2"],
                 expr="merge(df1, df2, on='id')",
-                output_var="merged_df",
+                output_vars=["merged_df"],
             ),
             ["merged_df = merge(df1, df2, on='id')"],
         ),
@@ -23,7 +23,7 @@ from rotab.tests.conftest import INDENT
                 name="transform_with_condition",
                 input_vars=["df1", "df2"],
                 expr="merge(df1, df2, on='id')",
-                output_var="merged_df",
+                output_vars=["merged_df"],
                 when="params.enabled",
             ),
             [
@@ -75,7 +75,7 @@ def test_transform_step_invalid_cases(input_vars, expr, error_message):
         },
     )
 
-    step = TransformStep(name="invalid_case", input_vars=input_vars, expr=expr, output_var="output")
+    step = TransformStep(name="invalid_case", input_vars=input_vars, expr=expr, output_vars=["output"])
 
     with pytest.raises(ValueError, match=error_message):
         step.validate(context)

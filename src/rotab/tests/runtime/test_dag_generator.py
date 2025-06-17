@@ -1,9 +1,9 @@
 import pytest
 from rotab.runtime.dag_generator import DagGenerator
-from rotab.ast.template import TemplateNode
-from rotab.ast.process import ProcessNode
-from rotab.ast.io import InputNode, OutputNode
-from rotab.ast.step import MutateStep, TransformStep, StepNode
+from rotab.ast.template_node import TemplateNode
+from rotab.ast.process_node import ProcessNode
+from rotab.ast.io_node import InputNode, OutputNode
+from rotab.ast.step_node import MutateStep, TransformStep, StepNode
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 
 
@@ -28,10 +28,10 @@ def generator():
         inputs=[InputNode(name="df1", io_type="csv", path="df1.csv", schema="schema1")],
         steps=[
             MutateStep(
-                name="mutate_a1", input_vars=["df1"], output_var="tmp_a", operations=[{"derive": "x = age + 1"}]
+                name="mutate_a1", input_vars=["df1"], output_vars=["tmp_a"], operations=[{"derive": "x = age + 1"}]
             ),
             TransformStep(
-                name="transform_a1", input_vars=["tmp_a"], output_var="out_a", expr="merge(tmp_a, tmp_a, on='age')"
+                name="transform_a1", input_vars=["tmp_a"], output_vars=["out_a"], expr="merge(tmp_a, tmp_a, on='age')"
             ),
         ],
         outputs=[OutputNode(name="out_a", io_type="csv", path="out_a.csv", schema=None)],
@@ -42,7 +42,7 @@ def generator():
         inputs=[InputNode(name="df2", io_type="csv", path="df2.csv", schema="schema2")],
         steps=[
             MutateStep(
-                name="mutate_a2", input_vars=["df2"], output_var="tmp_a2", operations=[{"derive": "z = id * 2"}]
+                name="mutate_a2", input_vars=["df2"], output_vars=["tmp_a2"], operations=[{"derive": "z = id * 2"}]
             ),
         ],
         outputs=[OutputNode(name="tmp_a2", io_type="csv", path="tmp_a2.csv", schema=None)],
@@ -57,7 +57,7 @@ def generator():
             TransformStep(
                 name="transform_b1",
                 input_vars=["df3", "tmp_a2"],
-                output_var="out_b",
+                output_vars=["out_b"],
                 expr="merge(df3, tmp_a2, on='id')",
             ),
         ],
