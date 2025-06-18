@@ -1,5 +1,8 @@
 import importlib.util
+import importlib
 from typing import List
+import types
+import uuid
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from rotab.loader.schema_manager import SchemaManager
@@ -11,30 +14,54 @@ class ContextBuilder:
         self.transform_func_path = transform_func_path
         self.schema_manager = schema_manager
 
-    def _load_functions(self, path: str) -> dict:
-        spec = importlib.util.spec_from_file_location("custom_module", path)
+    def _load_module_functions(self, module_name: str) -> dict:
+        module = importlib.import_module(module_name)
+        return {k: v for k, v in vars(module).items() if isinstance(v, types.FunctionType) and not k.startswith("_")}
+
+    def _load_file_functions(self, path: str) -> dict:
+        module_name = f"custom_module_{uuid.uuid4().hex}"  # Unique name to avoid conflicts
+        spec = importlib.util.spec_from_file_location(module_name, path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        return {k: v for k, v in vars(module).items() if callable(v) and not k.startswith("_")}
+        return {k: v for k, v in vars(module).items() if isinstance(v, types.FunctionType) and not k.startswith("_")}
+
+    def _get_eval_scope(self) -> dict:
+        core_derive = self._load_module_functions("rotab.core.operation.derive_funcs")
+        core_transform = self._load_module_functions("rotab.core.operation.transform_funcs")
+        custom_derive = self._load_file_functions(self.derive_func_path)
+        custom_transform = self._load_file_functions(self.transform_func_path)
+
+        sources = {
+            "core.derive": core_derive,
+            "core.transform": core_transform,
+            "custom.derive": custom_derive,
+            "custom.transform": custom_transform,
+        }
+
+        name_to_sources = {}
+        for source_label, funcs in sources.items():
+            for name in funcs:
+                name_to_sources.setdefault(name, []).append(source_label)
+
+        conflicts = {name: srcs for name, srcs in name_to_sources.items() if len(srcs) > 1}
+        if conflicts:
+            conflict_messages = [f"Function `{name}` defined in: {', '.join(srcs)}" for name, srcs in conflicts.items()]
+            raise ValueError("Function name conflicts detected:\n" + "\n".join(conflict_messages))
+
+        merged_custom = {}
+        merged_custom.update(custom_derive)
+        merged_custom.update(custom_transform)
+        return merged_custom
 
     def build(self, templates: List[TemplateNode]) -> ValidationContext:
-
-        eval_scope = {}
-        eval_scope.update(self._load_functions(self.derive_func_path))
-        eval_scope.update(self._load_functions(self.transform_func_path))
+        eval_scope = self._get_eval_scope()
 
         available_vars = set()
         schemas = {}
 
         for tpl in templates:
-            print(f"DEBUG: template = {tpl.name}")
             for proc in tpl.processes:
-                print(f"DEBUG: process = {proc.name}, inputs = {proc.inputs}")
                 for inp in proc.inputs:
-                    print(f"DEBUG: input = {inp.name}, schema = {inp.schema}")
-
-                    print(f"DEBUG: requesting schema for name={inp.schema} → key={inp.name}")
-                    print(f"DEBUG: schema content = {self.schema_manager.get_schema(inp.schema)}")
                     available_vars.add(inp.name)
                     if inp.schema:
                         schemas[inp.name] = self.schema_manager.get_schema(inp.schema)

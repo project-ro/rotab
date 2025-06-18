@@ -1,14 +1,14 @@
 import os
 import subprocess
-from typing import Optional
 import shutil
 from copy import deepcopy
+from typing import Optional
+
 from rotab.loader.loader import Loader
-from rotab.ast.context.validation_context import VariableInfo
 from rotab.loader.schema_manager import SchemaManager
+from rotab.loader.context_builder import ContextBuilder
 from rotab.runtime.code_generator import CodeGenerator
 from rotab.runtime.dag_generator import DagGenerator
-from rotab.loader.context_builder import ContextBuilder
 
 
 class Pipeline:
@@ -26,7 +26,6 @@ class Pipeline:
         transform_func_path: Optional[str] = None,
     ):
         schema_manager = SchemaManager(schema_dir)
-
         loader = Loader(template_dir, param_dir, schema_manager)
         templates = loader.load()
 
@@ -41,14 +40,7 @@ class Pipeline:
 
         return cls(templates, context)
 
-    def run(self, execute: bool = True, dag: bool = False, output_dir: str = "generated") -> None:
-        """
-        - execute=True: Pythonスクリプト(main.py)をその場で実行
-        - dag=True: Mermaid DAGファイルを生成
-        """
-
-        # create directories
-        os.makedirs(output_dir, exist_ok=True)
+    def copy_custom_functions(self, output_dir: str) -> None:
         cf_dir = os.path.join(output_dir, "custom_functions")
         os.makedirs(cf_dir, exist_ok=True)
         if self.context.derive_func_path:
@@ -56,26 +48,38 @@ class Pipeline:
         if self.context.transform_func_path:
             shutil.copy(self.context.transform_func_path, os.path.join(cf_dir, "transform_funcs.py"))
 
-        # generate dag
-        if dag:
-            dag_gen = DagGenerator(self.templates)
-            # dag_gen.write_mermaid(os.path.join(output_dir, "dag.mmd"))
-
-        # validate only once
+    def validate_all(self) -> None:
         validate_context = deepcopy(self.context)
         for template in self.templates:
             template.validate(validate_context)
         print("DEBUG: validate_context = ", validate_context)
 
-        # generate code
+    def generate_code(self, output_dir: str) -> None:
         codegen = CodeGenerator(self.templates, self.context)
         codegen.write_all(output_dir)
 
-        # execute scripts
+    def generate_dag(self, output_dir: str) -> None:
+        dag_gen = DagGenerator(self.templates)
+        dag_gen.write_mermaid(os.path.join(output_dir, "dag.mmd"))
+
+    def execute_script(self, output_dir: str) -> None:
+        try:
+            subprocess.run(["python", "main.py"], cwd=output_dir, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            print("STDOUT:\n", e.stdout)
+            print("STDERR:\n", e.stderr)
+            raise
+
+    def run(self, execute: bool = True, dag: bool = False, output_dir: str = "generated") -> None:
+        """
+        - execute=True: Pythonスクリプト(main.py)をその場で実行
+        - dag=True: Mermaid DAGファイルを生成
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        self.copy_custom_functions(output_dir)
+        if dag:
+            self.generate_dag(output_dir)
+        self.validate_all()
+        self.generate_code(output_dir)
         if execute:
-            try:
-                subprocess.run(["python", "main.py"], cwd=output_dir, check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError as e:
-                print("STDOUT:\n", e.stdout)
-                print("STDERR:\n", e.stderr)
-                raise
+            self.execute_script(output_dir)

@@ -32,7 +32,7 @@ def setup_full_test_env(tmpdir: str):
                                 "with": "${caller.with}",
                                 "mutate": [
                                     {"filter": "age > ${args.min_age}"},
-                                    {"derive": "log_age = log(age)\nage_bucket = age // 10 * 10"},
+                                    {"derive": "log_age = custom_log(age)\nage_bucket = age // 10 * 10"},
                                     {"select": "${args.selected_cols}"},
                                 ],
                                 "as": "${caller.as}",
@@ -112,7 +112,7 @@ def setup_full_test_env(tmpdir: str):
             textwrap.dedent(
                 """\
                 import math
-                def log(x):
+                def custom_log(x):
                     return math.log(x)
             """
             ).strip()

@@ -2,6 +2,7 @@ import tempfile
 import os
 import textwrap
 import yaml
+import pytest
 
 from rotab.loader.schema_manager import SchemaManager
 from rotab.loader.context_builder import ContextBuilder
@@ -79,3 +80,60 @@ def test_context_builder():
         assert "output_df" in context.schemas
         assert context.schemas["input_df"].columns == {"value": "int"}
         assert context.schemas["output_df"].columns == {"value": "int"}
+
+
+def test_context_builder_function_name_conflict():
+    # `log` が core.derive に既にある前提
+    derive_func_code = textwrap.dedent(
+        """
+        def log(x):
+            return x + 1
+        """
+    )
+
+    transform_func_code = textwrap.dedent(
+        """
+        def transform_func1(df):
+            return df
+        """
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        derive_path = os.path.join(tmpdir, "derive_funcs.py")
+        transform_path = os.path.join(tmpdir, "transform_funcs.py")
+        schema_dir = os.path.join(tmpdir, "schemas")
+        os.makedirs(schema_dir)
+
+        with open(os.path.join(schema_dir, "input.yaml"), "w") as f:
+            f.write("columns: {value: int}")
+        with open(os.path.join(schema_dir, "output.yaml"), "w") as f:
+            f.write("columns: {value: int}")
+
+        with open(derive_path, "w") as f:
+            f.write(derive_func_code)
+        with open(transform_path, "w") as f:
+            f.write(transform_func_code)
+
+        template = TemplateNode(
+            name="conflict_case",
+            processes=[
+                ProcessNode(
+                    name="dummy_process",
+                    inputs=[InputNode(name="input", io_type="csv", path="in.csv", schema="input")],
+                    outputs=[OutputNode(name="output", io_type="csv", path="out.csv", schema="output")],
+                    steps=[],
+                )
+            ],
+        )
+
+        schema_manager = SchemaManager(schema_dir)
+        builder = ContextBuilder(
+            derive_func_path=derive_path,
+            transform_func_path=transform_path,
+            schema_manager=schema_manager,
+        )
+
+        with pytest.raises(ValueError) as e:
+            builder.build([template])
+
+        assert "Function `log` defined in:" in str(e.value)

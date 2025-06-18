@@ -1,3 +1,3 @@
 import math
-def log(x):
+def custom_log(x):
     return math.log(x)
