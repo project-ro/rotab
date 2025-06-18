@@ -21,15 +21,15 @@ def step_join_step_enrich_and_filter(filtered_users, trans):
 
 
 def enrich_and_filter():
-    user = pd.read_csv("/tmp/tmpgzcru1m2/input/user.csv", dtype={'age': 'int', 'user_id': 'str'})
-    trans = pd.read_csv("/tmp/tmpgzcru1m2/input/transaction.csv", dtype={'amount': 'float', 'user_id': 'str'})
+    user = pd.read_csv("/tmp/tmpn7dog1oo/input/user.csv", dtype={'age': 'int', 'user_id': 'str'})
+    trans = pd.read_csv("/tmp/tmpn7dog1oo/input/transaction.csv", dtype={'amount': 'float', 'user_id': 'str'})
     filtered_users = step_filter_users_main_enrich_and_filter(user)
     final_output = step_join_step_enrich_and_filter(filtered_users, trans)
     final_output["age_bucket"] = final_output["age_bucket"].astype("int")
     final_output["amount"] = final_output["amount"].astype("float")
     final_output["log_age"] = final_output["log_age"].astype("float")
     final_output["user_id"] = final_output["user_id"].astype("str")
-    final_output.to_csv("/tmp/tmpgzcru1m2/final_output.csv", index=False, columns=['age_bucket', 'amount', 'log_age', 'user_id'])
+    final_output.to_csv("/tmp/tmpn7dog1oo/final_output.csv", index=False, columns=['age_bucket', 'amount', 'log_age', 'user_id'])
     return final_output
 
 

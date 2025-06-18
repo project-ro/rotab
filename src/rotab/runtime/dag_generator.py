@@ -2,6 +2,7 @@ from typing import List, Tuple, Optional, Dict, Type
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.process_node import ProcessNode
 from rotab.ast.step_node import StepNode
+from rotab.ast.io_node import InputNode, OutputNode
 from rotab.ast.node import Node
 
 
@@ -66,3 +67,55 @@ class DagGenerator:
         node_set = set(nodes)
         edges = self.build_step_edges(nodes)
         return [e for e in edges if e[0] in node_set and e[1] in node_set]
+
+    def generate_mermaid(self) -> str:
+        lines = ["graph TB"]
+        lines.append("%% Nodes")
+
+        for tpl in self.templates:
+            lines.append(f"%% Template: {tpl.name}")
+            lines.append(f'subgraph T_{tpl.name} ["{tpl.name}"]')
+
+            for proc in tpl.get_children():
+                lines.append(f"  %% Process: {proc.name}")
+                lines.append(f'  subgraph P_{proc.name} ["{proc.name}"]')
+
+                proc_nodes = self.get_nodes(template_name=tpl.name, process_name=proc.name)
+                proc_edges = self.get_edges(template_name=tpl.name, process_name=proc.name)
+
+                for node in proc_nodes:
+                    scoped_name = f"{tpl.name}__{node.name}"
+                    if isinstance(node, InputNode):
+                        lines.append(f'    I_{scoped_name}(["[I]{node.name}"])')
+                    elif isinstance(node, OutputNode):
+                        lines.append(f'    O_{scoped_name}(["[O]{node.name}"])')
+                    elif isinstance(node, StepNode):
+                        lines.append(f'    S_{scoped_name}(["[S]{node.name}"])')
+
+                for src, dst in proc_edges:
+                    lines.append(
+                        f"    {self._node_prefix(src)}_{tpl.name}__{src.name} --> {self._node_prefix(dst)}_{tpl.name}__{dst.name}"
+                    )
+
+                lines.append("  end")  # end process
+            lines.append("end")  # end template
+
+        lines.append("%% Template Dependencies")
+        for src_tpl, dst_tpl in self.build_template_edges():
+            lines.append(f"T_{src_tpl.name} --> T_{dst_tpl.name}")
+
+        return "\n".join(lines)
+
+    def _node_prefix(self, node: Node) -> str:
+        if isinstance(node, InputNode):
+            return "I"
+        elif isinstance(node, OutputNode):
+            return "O"
+        elif isinstance(node, StepNode):
+            return "S"
+        elif isinstance(node, ProcessNode):
+            return "P"
+        elif isinstance(node, TemplateNode):
+            return "T"
+        else:
+            raise TypeError(f"Unsupported node type: {type(node)}")

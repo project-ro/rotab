@@ -9,6 +9,12 @@ class Node(BaseModel, ABC):
     name: Optional[str] = None
     lineno: Optional[int] = None
 
+    def __hash__(self):
+        return hash((type(self), self.name))
+
+    def __eq__(self, other):
+        return isinstance(other, Node) and type(self) == type(other) and self.name == other.name
+
     class Config:
         arbitrary_types_allowed = True
 

@@ -66,6 +66,7 @@ class MutateStep(StepNode):
                     raise ValueError(f"[{self.name}] Invalid filter expression: {value!r}")
 
             elif key == "derive":
+
                 for lineno, line in enumerate(value.splitlines(), 1):
                     if not line.strip():
                         continue
@@ -79,24 +80,40 @@ class MutateStep(StepNode):
                     except Exception:
                         raise ValueError(f"[{self.name}] Syntax error in RHS: {rhs!r}")
                     available_vars.add(lhs)
+
+                    if not df_columns:
+                        print(
+                            f"DEBUG: {self.name} skipping derive because df_columns is empty (e.g., transform output)"
+                        )
+                        continue
+
                     df_columns[lhs] = "str"  # 暫定スキーマ
 
             elif key == "select":
+                print(f"DEBUG: {self.name} select operation with value = {value}")
+                print(f"DEBUG: {self.name} df_columns = {df_columns}")
                 if not isinstance(value, list) or not all(isinstance(col, str) for col in value):
                     raise ValueError(f"[{self.name}] select must be a list of strings.")
-                if not df_columns:
+
+                if not df_columns or df_columns == {}:
+                    print(f"DEBUG: {self.name} df_columns is empty, skipping select check.")
+                    # 推論不能なスキーマ（transform後など）であれば select チェックはスキップ
                     continue
+
                 for col in value:
                     if col not in df_columns:
-                        # BUG
                         raise ValueError(f"[{self.name}] select references undefined column: {col}")
+
             else:
                 raise ValueError(f"[{self.name}] Unknown mutate operation: {key}")
 
         for out in self.output_vars:
             available_vars.add(out)
             if out not in schemas:
-                schemas[out] = VariableInfo(type="dataframe", columns=df_columns.copy())
+                if df_columns:
+                    schemas[out] = VariableInfo(type="dataframe", columns=df_columns.copy())
+                else:
+                    schemas[out] = VariableInfo(type="dataframe", columns={})
 
         print(f"DEBUG: {self.name} output schema = {schemas}")
 

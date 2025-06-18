@@ -1,4 +1,6 @@
 import pytest
+import textwrap
+
 from rotab.runtime.dag_generator import DagGenerator
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.process_node import ProcessNode
@@ -151,3 +153,164 @@ def test_get_nodes_filters(generator):
     proc_a1_nodes = generator.get_nodes(process_name="proc_a1")
     proc_a1_names = {n.name for n in proc_a1_nodes}
     assert {"df1", "mutate_a1", "transform_a1", "out_a"}.issubset(proc_a1_names)
+
+
+# Marmaid の生成テスト
+expected_mermaid_output = textwrap.dedent(
+    """\
+graph TB
+%% Nodes
+%% Template: tpl_a
+subgraph T_tpl_a ["tpl_a"]
+  %% Process: user_filter
+  subgraph P_user_filter ["user_filter"]
+    I_tpl_a__user(["[I]user"])
+    S_tpl_a__filter_users(["[S]filter_users"])
+    O_tpl_a__filtered_users(["[O]filtered_users"])
+    I_tpl_a__user --> S_tpl_a__filter_users
+    S_tpl_a__filter_users --> O_tpl_a__filtered_users
+  end
+  %% Process: trans_summary
+  subgraph P_trans_summary ["trans_summary"]
+    I_tpl_a__transaction(["[I]transaction"])
+    S_tpl_a__summarize_transactions(["[S]summarize_transactions"])
+    O_tpl_a__filtered_transactions(["[O]filtered_transactions"])
+    I_tpl_a__transaction --> S_tpl_a__summarize_transactions
+    S_tpl_a__summarize_transactions --> O_tpl_a__filtered_transactions
+  end
+end
+%% Template: tpl_b
+subgraph T_tpl_b ["tpl_b"]
+  %% Process: transaction_enrichment
+  subgraph P_transaction_enrichment ["transaction_enrichment"]
+    I_tpl_b__filtered_users(["[I]filtered_users"])
+    I_tpl_b__filtered_transactions(["[I]filtered_transactions"])
+    S_tpl_b__merge_data(["[S]merge_data"])
+    S_tpl_b__enrich(["[S]enrich"])
+    O_tpl_b__enriched(["[O]enriched"])
+    I_tpl_b__filtered_users --> S_tpl_b__merge_data
+    I_tpl_b__filtered_transactions --> S_tpl_b__merge_data
+    S_tpl_b__merge_data --> S_tpl_b__enrich
+    S_tpl_b__enrich --> O_tpl_b__enriched
+  end
+  %% Process: dummy_proc
+  subgraph P_dummy_proc ["dummy_proc"]
+    I_tpl_b__user(["[I]user"])
+    S_tpl_b__noop_step(["[S]noop_step"])
+    O_tpl_b__noop_out(["[O]noop_out"])
+    I_tpl_b__user --> S_tpl_b__noop_step
+    S_tpl_b__noop_step --> O_tpl_b__noop_out
+  end
+end
+%% Template Dependencies
+T_tpl_a --> T_tpl_b"""
+)
+
+
+def test_generate_mermaid_with_template_namespacing():
+    ctx = ValidationContext(
+        available_vars=set(),
+        schemas={
+            "schema_user": VariableInfo(type="dataframe", columns={"user_id": "str", "age": "int"}),
+            "schema_trans": VariableInfo(type="dataframe", columns={"user_id": "str", "amount": "int"}),
+        },
+        eval_scope={"merge": lambda x, y, on: x},
+    )
+
+    tpl_a = TemplateNode(
+        name="tpl_a",
+        processes=[
+            ProcessNode(
+                name="user_filter",
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="schema_user")],
+                steps=[
+                    MutateStep(
+                        name="filter_users",
+                        input_vars=["user"],
+                        output_vars=["filtered_users"],
+                        operations=[
+                            {"filter": "age >= 18"},
+                            {"derive": "age_group = age // 10"},
+                            {"select": ["user_id", "age_group"]},
+                        ],
+                    )
+                ],
+                outputs=[OutputNode(name="filtered_users", io_type="csv", path="filtered_users.csv", schema=None)],
+            ),
+            ProcessNode(
+                name="trans_summary",
+                inputs=[InputNode(name="transaction", io_type="csv", path="transaction.csv", schema="schema_trans")],
+                steps=[
+                    MutateStep(
+                        name="summarize_transactions",
+                        input_vars=["transaction"],
+                        output_vars=["filtered_transactions"],
+                        operations=[
+                            {"filter": "amount > 1000"},
+                            {"derive": "is_high = amount > 10000"},
+                            {"select": ["user_id", "amount", "is_high"]},
+                        ],
+                    )
+                ],
+                outputs=[
+                    OutputNode(
+                        name="filtered_transactions", io_type="csv", path="filtered_transactions.csv", schema=None
+                    )
+                ],
+            ),
+        ],
+    )
+
+    tpl_b = TemplateNode(
+        name="tpl_b",
+        depends=["tpl_a"],
+        processes=[
+            ProcessNode(
+                name="transaction_enrichment",
+                inputs=[
+                    InputNode(name="filtered_users", io_type="csv", path="filtered_users.csv", schema=None),
+                    InputNode(
+                        name="filtered_transactions", io_type="csv", path="filtered_transactions.csv", schema=None
+                    ),
+                ],
+                steps=[
+                    TransformStep(
+                        name="merge_data",
+                        input_vars=["filtered_users", "filtered_transactions"],
+                        output_vars=["merged"],
+                        expr="merge(filtered_users, filtered_transactions, on='user_id')",
+                    ),
+                    MutateStep(
+                        name="enrich",
+                        input_vars=["merged"],
+                        output_vars=["enriched"],
+                        operations=[{"derive": "status = 'ok'"}, {"select": ["user_id", "status"]}],
+                    ),
+                ],
+                outputs=[OutputNode(name="enriched", io_type="csv", path="enriched.csv", schema=None)],
+            ),
+            ProcessNode(
+                name="dummy_proc",
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="schema_user")],
+                steps=[
+                    MutateStep(
+                        name="noop_step",
+                        input_vars=["user"],
+                        output_vars=["noop_out"],
+                        operations=[{"derive": "dummy = 1"}, {"select": ["dummy"]}],
+                    )
+                ],
+                outputs=[OutputNode(name="noop_out", io_type="csv", path="noop.csv", schema=None)],
+            ),
+        ],
+    )
+
+    tpl_a.validate(ctx)
+    tpl_b.validate(ctx)
+
+    generator = DagGenerator([tpl_a, tpl_b])
+    actual_output = generator.generate_mermaid()
+
+    assert (
+        actual_output.strip() == expected_mermaid_output.strip()
+    ), f"Mermaid output mismatch:\n\nExpected:\n{expected_mermaid_output}\n\nActual:\n{actual_output}"
