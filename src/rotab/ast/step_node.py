@@ -38,19 +38,13 @@ class MutateStep(StepNode):
 
         input_var = self.input_vars[0]
 
-        print(f"DEBUG: {self.name} input_var = {input_var}")
-        print(f"DEBUG: context.schemas = {schemas}")
-
         if input_var in schemas:
             var_info = schemas[input_var]
             if var_info.type != "dataframe":
                 raise ValueError(f"[{self.name}] `{input_var}` must be a dataframe.")
             df_columns = var_info.columns.copy()
         else:
-            print(f"DEBUG: input_var '{input_var}' not found in schemas, assuming empty dataframe.")
             df_columns = {}
-
-        print(f"DEBUG: {self.name} df_columns = {df_columns}")
 
         for i, op in enumerate(self.operations):
             if not isinstance(op, dict) or len(op) != 1:
@@ -82,21 +76,15 @@ class MutateStep(StepNode):
                     available_vars.add(lhs)
 
                     if not df_columns:
-                        print(
-                            f"DEBUG: {self.name} skipping derive because df_columns is empty (e.g., transform output)"
-                        )
                         continue
 
                     df_columns[lhs] = "str"  # 暫定スキーマ
 
             elif key == "select":
-                print(f"DEBUG: {self.name} select operation with value = {value}")
-                print(f"DEBUG: {self.name} df_columns = {df_columns}")
                 if not isinstance(value, list) or not all(isinstance(col, str) for col in value):
                     raise ValueError(f"[{self.name}] select must be a list of strings.")
 
                 if not df_columns or df_columns == {}:
-                    print(f"DEBUG: {self.name} df_columns is empty, skipping select check.")
                     # 推論不能なスキーマ（transform後など）であれば select チェックはスキップ
                     continue
 
@@ -114,8 +102,6 @@ class MutateStep(StepNode):
                     schemas[out] = VariableInfo(type="dataframe", columns=df_columns.copy())
                 else:
                     schemas[out] = VariableInfo(type="dataframe", columns={})
-
-        print(f"DEBUG: {self.name} output schema = {schemas}")
 
     def _rewrite_rhs_with_row(self, rhs: str) -> str:
         try:

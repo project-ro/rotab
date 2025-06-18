@@ -154,8 +154,6 @@ def test_pipeline_get_dependencies(setup_virtual_project):
 
     deps = pipeline._get_dependencies()
 
-    print(f"Dependencies: {deps}")
-
     # === template_successors ===
     template_successors = deps["template_successors"]
     assert template_successors == {"template_a": ["template_b"]}

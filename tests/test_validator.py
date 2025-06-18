@@ -6,7 +6,6 @@ def assert_error(cfg, expect_error):
     validator = TemplateValidator(cfg)
     validator.validate()
     if validator.errors:
-        print("ERROR FOUND:")
         for error in validator.errors:
             print(f"- {error}")
     assert expect_error == bool(

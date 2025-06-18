@@ -39,8 +39,6 @@ class InputNode(IOBaseNode):
         else:
             context.schemas[self.name] = VariableInfo(type="dataframe", columns={})
 
-        print(f"DEBUG: InputNode '{self.name}' validated with context: {context}")
-
     def generate_script(self, context: ValidationContext) -> List[str]:
         var_info = context.schemas.get(self.name)
         if not isinstance(var_info, VariableInfo):

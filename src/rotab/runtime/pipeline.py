@@ -60,7 +60,7 @@ class Pipeline:
 
     def generate_dag(self, output_dir: str) -> None:
         dag_gen = DagGenerator(self.templates)
-        dag_gen.write_mermaid(os.path.join(output_dir, "dag.mmd"))
+        dag_gen.generate_mermaid(os.path.join(output_dir, "mermaid.mmd"))
 
     def execute_script(self, output_dir: str) -> None:
         try:
@@ -70,7 +70,7 @@ class Pipeline:
             print("STDERR:\n", e.stderr)
             raise
 
-    def run(self, execute: bool = True, dag: bool = False, output_dir: str = "generated") -> None:
+    def run(self, execute: bool = True, dag: bool = False, output_dir: str = ".generated") -> None:
         """
         - execute=True: Pythonスクリプト(main.py)をその場で実行
         - dag=True: Mermaid DAGファイルを生成

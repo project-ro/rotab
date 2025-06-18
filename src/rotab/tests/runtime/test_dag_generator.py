@@ -100,8 +100,6 @@ def test_full_step_dependency_edges(generator):
     edges = generator.build_step_edges(nodes)
     edge_names = {(a.name, b.name) for a, b in edges}
 
-    print("Edges:", edge_names)
-
     # I/O → Step, Step → Step, Step → I/O 全て検証
     expected_edges = {
         ("df1", "mutate_a1"),

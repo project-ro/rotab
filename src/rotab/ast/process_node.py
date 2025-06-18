@@ -26,7 +26,6 @@ class ProcessNode(Node):
         defined_vars = set()
 
         # 1. 入力変数を available_vars と defined_vars に登録
-        print(f"DEBUG: Validating ProcessNode '{self.name}' with inputs: {[inp.name for inp in self.inputs]}")
         for inp in self.inputs:
             inp.validate(context)
             defined_vars.add(inp.name)

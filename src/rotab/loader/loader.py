@@ -18,11 +18,6 @@ class Loader:
 
     def load(self) -> List[TemplateNode]:
         templates = self._load_all_templates()
-
-        print("DEBUG: Loaded templates:")
-        for tpl in templates:
-            print(tpl)
-
         sorted_templates = self._resolve_dependencies(templates)
         return [self._to_node(t) for t in sorted_templates]
 
