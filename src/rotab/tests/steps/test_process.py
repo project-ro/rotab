@@ -26,8 +26,6 @@ from rotab.ast.util import INDENT
                 "import pandas as pd",
                 "from rotab.core.operation.derive_funcs import *",
                 "from rotab.core.operation.transform_funcs import *",
-                "from custom_functions.derive_funcs import *",
-                "from custom_functions.transform_funcs import *",
                 "",
                 "",
                 # === Step function ===

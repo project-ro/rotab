@@ -57,14 +57,18 @@ class Pipeline:
     def generate_code(self, output_dir: str) -> None:
         codegen = CodeGenerator(self.templates, self.context)
         codegen.write_all(output_dir)
+        print("Code generated at:", output_dir)
 
     def generate_dag(self, output_dir: str) -> None:
         dag_gen = DagGenerator(self.templates)
-        dag_gen.generate_mermaid(os.path.join(output_dir, "mermaid.mmd"))
+        mermeid = dag_gen.generate_mermaid()
+        with open(os.path.join(output_dir, "mermaid.mmd"), "w") as f:
+            f.write(mermeid)
+        print("Mermaid DAG generated at:", os.path.join(output_dir, "mermaid.mmd"))
 
     def execute_script(self, output_dir: str) -> None:
         try:
-            subprocess.run(["python", "main.py"], cwd=output_dir, check=True, capture_output=True, text=True)
+            subprocess.run(["python", os.path.join(output_dir, "main.py")], check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
             print("STDOUT:\n", e.stdout)
             print("STDERR:\n", e.stderr)

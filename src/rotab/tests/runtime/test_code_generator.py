@@ -36,6 +36,8 @@ def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str], 
     template = TemplateNode(name="test_template", depends=[], processes=[process])
 
     context = ValidationContext(
+        derive_func_path="custom_functions/derive_funcs.py",
+        transform_func_path="custom_functions/transform_funcs.py",
         available_vars=set(),
         eval_scope={"transform_func": lambda x: x, "log": lambda x: x},
         schemas={

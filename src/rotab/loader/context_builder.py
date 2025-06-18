@@ -18,12 +18,19 @@ class ContextBuilder:
         module = importlib.import_module(module_name)
         return {k: v for k, v in vars(module).items() if isinstance(v, types.FunctionType) and not k.startswith("_")}
 
-    def _load_file_functions(self, path: str) -> dict:
-        module_name = f"custom_module_{uuid.uuid4().hex}"  # Unique name to avoid conflicts
+    def _load_file_functions(self, path: str | None) -> dict:
+        if not path:
+            return {}
+
+        module_name = f"custom_module_{uuid.uuid4().hex}"  # 一意な名前で競合防止
         spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise ValueError(f"Invalid Python file path or spec could not be loaded: {path}")
+
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        return {k: v for k, v in vars(module).items() if isinstance(v, types.FunctionType) and not k.startswith("_")}
+
+        return {name: obj for name, obj in vars(module).items() if callable(obj) and not name.startswith("_")}
 
     def _get_eval_scope(self) -> dict:
         core_derive = self._load_module_functions("rotab.core.operation.derive_funcs")

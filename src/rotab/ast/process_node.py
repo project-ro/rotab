@@ -57,11 +57,26 @@ class ProcessNode(Node):
             "import pandas as pd",
             "from rotab.core.operation.derive_funcs import *",
             "from rotab.core.operation.transform_funcs import *",
-            "from custom_functions.derive_funcs import *",
-            "from custom_functions.transform_funcs import *",
-            "",
-            "",
         ]
+
+        if context.derive_func_path is not None:
+            imports.append("from custom_functions.derive_funcs import *")
+        if context.transform_func_path is not None:
+            imports.append("from custom_functions.transform_funcs import *")
+
+        imports.extend(["", ""])
+
+        # # === Import section ===
+        # imports = [
+        #     "import os",
+        #     "import pandas as pd",
+        #     "from rotab.core.operation.derive_funcs import *",
+        #     "from rotab.core.operation.transform_funcs import *",
+        #     "from custom_functions.derive_funcs import *",
+        #     "from custom_functions.transform_funcs import *",
+        #     "",
+        #     "",
+        # ]
 
         # === Step functions ===
         step_funcs: List[str] = []
