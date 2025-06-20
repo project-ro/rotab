@@ -1,8 +1,8 @@
 name: main_template
 
 depends:
-  - user_filter
-  - trans_summary
+  - user_filter_template
+  - transaction_summary_template
 
 processes:
   - name: transaction_enrichment
@@ -13,18 +13,18 @@ processes:
       inputs:
         - name: user
           io_type: csv
-          path: ../../output/filtered_users.csv # relative to this file path
+          path: ../../source/outputs/filtered_users.csv # relative to this file path
           schema: user # optional, corresponds to the schema in <schema_dir>/user.yaml
 
         - name: trans
           io_type: csv
-          path: ../../output/filtered_transactions.csv
+          path: ../../source/outputs/filtered_transactions.csv
           schema: trans
 
       outputs:
         - name: final_output
           io_type: csv
-          path: ../../output/final_output.csv
+          path: ../../source/outputs/final_output.csv
           schema: final_output
 
     steps:

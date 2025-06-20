@@ -55,10 +55,12 @@ class ContextBuilder:
             conflict_messages = [f"Function `{name}` defined in: {', '.join(srcs)}" for name, srcs in conflicts.items()]
             raise ValueError("Function name conflicts detected:\n" + "\n".join(conflict_messages))
 
-        merged_custom = {}
-        merged_custom.update(custom_derive)
-        merged_custom.update(custom_transform)
-        return merged_custom
+        merged_scope = {}
+        merged_scope.update(core_derive)
+        merged_scope.update(core_transform)
+        merged_scope.update(custom_derive)
+        merged_scope.update(custom_transform)
+        return merged_scope
 
     def build(self, templates: List[TemplateNode]) -> ValidationContext:
         eval_scope = self._get_eval_scope()

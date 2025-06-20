@@ -66,7 +66,11 @@ class MutateStep(StepNode):
                         continue
                     if "=" not in line or re.match(r"^[^=]+==[^=]+$", line):
                         raise ValueError(f"[{self.name}] derive line {lineno}: malformed '=' in {line!r}")
-                    lhs, rhs = map(str.strip, line.split("=", 1))
+                    parts = line.split("=", 1)
+                    if len(parts) != 2:
+                        raise ValueError(f"[{self.name}] Invalid assignment expression: `{line}`")
+                    lhs, rhs = map(str.strip, parts)
+
                     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", lhs):
                         raise ValueError(f"[{self.name}] Invalid LHS in derive: {lhs!r}")
                     try:
@@ -143,13 +147,23 @@ class MutateStep(StepNode):
             for key, value in op.items():
                 if key == "filter":
                     lines.append(f"{var_result} = {var_result}.query('{value}').copy()")
+
                 elif key == "derive":
+                    if not isinstance(value, str):
+                        raise ValueError(f"[{self.name}] derive must be a string.")
                     for line in value.split("\n"):
-                        lhs, rhs = map(str.strip, line.split("=", 1))
+                        line = line.strip()
+                        if not line:
+                            continue  # skip empty lines
+                        parts = line.split("=", 1)
+                        if len(parts) != 2:
+                            raise ValueError(f"[{self.name}] Invalid assignment expression: `{line}`")
+                        lhs, rhs = map(str.strip, parts)
                         transformed_rhs = self._rewrite_rhs_with_row(rhs)
                         lines.append(
                             f'{var_result}["{lhs}"] = {var_result}.apply(lambda row: {transformed_rhs}, axis=1)'
                         )
+
                 elif key == "select":
                     cols = ", ".join([f'"{col}"' for col in value])
                     lines.append(f"{var_result} = {var_result}[[{cols}]]")

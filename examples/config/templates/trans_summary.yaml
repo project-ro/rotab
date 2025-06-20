@@ -1,13 +1,16 @@
+name: transaction_summary_template
 processes:
   - name: trans_summary
     description: Summarize transaction amounts
     io:
       inputs:
         - name: trans
+          io_type: csv
           path: ../../data/transaction.csv
       outputs:
         - name: filtered_transactions
-          path: ../../output/filtered_transactions.csv
+          io_type: csv
+          path: ../../source/outputs/filtered_transactions.csv
     steps:
       - name: summarize_transactions
         with: trans

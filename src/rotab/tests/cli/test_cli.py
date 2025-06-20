@@ -1,5 +1,5 @@
-import tempfile
 import os
+import tempfile
 import shutil
 import yaml
 import sys
@@ -17,15 +17,17 @@ def create_dummy_project(base_dir):
     template_dir = os.path.join(base_dir, "templates")
     param_dir = os.path.join(base_dir, "params")
     schema_dir = os.path.join(base_dir, "schemas")
-    input_dir = os.path.join(base_dir, "input")
     os.makedirs(template_dir)
     os.makedirs(param_dir)
     os.makedirs(schema_dir)
-    os.makedirs(input_dir)
 
+    # 入力CSVを template_dir/input/ に配置
+    input_dir = os.path.join(template_dir, "input")
+    os.makedirs(input_dir, exist_ok=True)
     with open(os.path.join(input_dir, "dummy.csv"), "w") as f:
         f.write("user_id,age\nu1,30\n")
 
+    # テンプレート（template_dir 起点の相対パスで記述）
     write_yaml(
         os.path.join(template_dir, "template.yaml"),
         {
@@ -38,7 +40,7 @@ def create_dummy_project(base_dir):
                             {
                                 "name": "input_df",
                                 "io_type": "csv",
-                                "path": "input/dummy.csv",  # 相対パス
+                                "path": "input/dummy.csv",  # template_dir からの相対パス
                                 "schema": "input_df",
                             }
                         ],
@@ -46,7 +48,7 @@ def create_dummy_project(base_dir):
                             {
                                 "name": "out_df",
                                 "io_type": "csv",
-                                "path": "output/out.csv",  # 相対パス
+                                "path": "output/out.csv",  # 相対パス（run時に source_dir/output にコピーされる）
                                 "schema": "input_df",
                             }
                         ],
@@ -64,10 +66,11 @@ def create_dummy_project(base_dir):
         },
     )
 
+    # スキーマとパラメータ
     write_yaml(os.path.join(schema_dir, "input_df.yaml"), {"columns": {"user_id": "str", "age": "int"}})
     write_yaml(os.path.join(param_dir, "params.yaml"), {"params": {}})
 
-    return template_dir, param_dir, schema_dir, input_dir
+    return template_dir, param_dir, schema_dir
 
 
 @pytest.mark.parametrize(
@@ -81,28 +84,23 @@ def create_dummy_project(base_dir):
 def test_cli_main_variants(execute, dag):
     tmpdir = tempfile.mkdtemp()
     try:
-        template_dir, param_dir, schema_dir, input_dir = create_dummy_project(tmpdir)
-        current_dir = os.path.join(tmpdir, "current_project")
-        os.makedirs(current_dir, exist_ok=True)
-
-        input_dir_in_output = os.path.join(current_dir, "input")
-        os.makedirs(input_dir_in_output, exist_ok=True)
-        shutil.copy(os.path.join(input_dir, "dummy.csv"), os.path.join(input_dir_in_output, "dummy.csv"))
+        template_dir, param_dir, schema_dir = create_dummy_project(tmpdir)
+        source_dir = os.path.join(tmpdir, "runspace")
+        os.makedirs(source_dir, exist_ok=True)
 
         cwd = os.getcwd()
-        os.chdir(current_dir)
+        os.chdir(source_dir)
         try:
-            os.makedirs("output", exist_ok=True)
             argv = [
                 "rotab",
                 "--template-dir",
-                "../templates",
+                os.path.relpath(template_dir, source_dir),
                 "--param-dir",
-                "../params",
+                os.path.relpath(param_dir, source_dir),
                 "--schema-dir",
-                "../schemas",
-                "--output-dir",
-                ".",  # カレントディレクトリを出力先に
+                os.path.relpath(schema_dir, source_dir),
+                "--source-dir",
+                ".",
             ]
             if execute:
                 argv.append("--execute")
@@ -112,13 +110,12 @@ def test_cli_main_variants(execute, dag):
             with patch.object(sys, "argv", argv):
                 main()
 
-            assert os.path.exists("main.py")
+            assert os.path.exists("main.py"), "main.py not found"
 
-            dag_path = "mermaid.mmd"
             if dag:
-                assert os.path.exists(dag_path)
+                assert os.path.exists("mermaid.mmd"), "mermaid.mmd should be generated"
             else:
-                assert not os.path.exists(dag_path)
+                assert not os.path.exists("mermaid.mmd"), "mermaid.mmd should not be generated"
 
         finally:
             os.chdir(cwd)

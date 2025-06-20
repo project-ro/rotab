@@ -8,17 +8,19 @@ from rotab.runtime.pipeline import Pipeline
 
 
 def setup_full_test_env(tmpdir: str):
-    # ディレクトリ準備
     template_dir = os.path.join(tmpdir, "templates")
     param_dir = os.path.join(tmpdir, "params")
     schema_dir = os.path.join(tmpdir, "schemas")
     input_dir = os.path.join(tmpdir, "input")
+    source_dir = os.path.join(tmpdir, "runspace")  # 出力専用ディレクトリ
+
     os.makedirs(template_dir)
     os.makedirs(param_dir)
     os.makedirs(schema_dir)
     os.makedirs(input_dir)
+    os.makedirs(source_dir)
 
-    # テンプレート定義
+    # テンプレート定義（パスは input_dir からの相対パスにする）
     template = {
         "name": "full_test_template",
         "processes": [
@@ -45,13 +47,13 @@ def setup_full_test_env(tmpdir: str):
                         {
                             "name": "user",
                             "io_type": "csv",
-                            "path": os.path.join(input_dir, "user.csv"),
+                            "path": "input/user.csv",  # 🔧 相対パス（template_dir 基準）
                             "schema": "user",
                         },
                         {
                             "name": "trans",
                             "io_type": "csv",
-                            "path": os.path.join(input_dir, "transaction.csv"),
+                            "path": "input/transaction.csv",
                             "schema": "trans",
                         },
                     ],
@@ -59,7 +61,7 @@ def setup_full_test_env(tmpdir: str):
                         {
                             "name": "final_output",
                             "io_type": "csv",
-                            "path": os.path.join(tmpdir, "final_output.csv"),
+                            "path": "final_output.csv",  # 書き換え後は runspace/outputs に配置される
                             "schema": "final_output",
                         }
                     ],
@@ -98,6 +100,9 @@ def setup_full_test_env(tmpdir: str):
         yaml.dump({"columns": {"user_id": "str", "log_age": "float", "age_bucket": "int", "amount": "float"}}, f)
 
     # 入力CSV
+    input_dir = os.path.join(template_dir, "input")
+    os.makedirs(input_dir, exist_ok=True)
+
     pd.DataFrame({"user_id": ["u1", "u2", "u3"], "age": [15, 25, 35]}).to_csv(
         os.path.join(input_dir, "user.csv"), index=False
     )
@@ -114,7 +119,7 @@ def setup_full_test_env(tmpdir: str):
                 import math
                 def custom_log(x):
                     return math.log(x)
-            """
+                """
             ).strip()
             + "\n"
         )
@@ -127,20 +132,21 @@ def setup_full_test_env(tmpdir: str):
                 import pandas as pd
                 def merge_users_transactions(filtered_users, trans):
                     return pd.merge(filtered_users, trans, on="user_id")
-            """
+                """
             ).strip()
             + "\n"
         )
 
-    return template_dir, param_dir, schema_dir, derive_path, transform_path, tmpdir
+    return template_dir, param_dir, schema_dir, derive_path, transform_path, source_dir
 
 
 def test_pipeline_execution_with_all_features():
     with tempfile.TemporaryDirectory() as tmpdir:
-        template_dir, param_dir, schema_dir, derive_path, transform_path, base_dir = setup_full_test_env(tmpdir)
+        template_dir, param_dir, schema_dir, derive_path, transform_path, source_dir = setup_full_test_env(tmpdir)
 
         pipeline = Pipeline.from_setting(
             template_dir=template_dir,
+            source_dir=source_dir,
             param_dir=param_dir,
             schema_dir=schema_dir,
             derive_func_path=derive_path,
@@ -148,10 +154,10 @@ def test_pipeline_execution_with_all_features():
         )
         pipeline.run(execute=True, dag=False)
 
-        output_path = os.path.join(base_dir, "final_output.csv")
+        output_path = os.path.join(source_dir, "data", "outputs", "final_output.csv")
         assert os.path.exists(output_path), "final_output.csv not generated"
 
         df = pd.read_csv(output_path)
         assert set(df.columns) == {"user_id", "log_age", "age_bucket", "amount"}
-        assert len(df) == 2  # u2 and u3 only (age > 20)
+        assert len(df) == 2
         assert set(df["user_id"]) == {"u2", "u3"}

@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "rotab"
 version = "0.1.0"
-description = ""
+description = "RoTab; a template that moves with your thinking."
 packages = [{ include = "rotab", from = "src" }]
 authors = ["yuta.itatsu <yuta.itatsu@gmail.com>"]
 readme = "README.md"
@@ -17,10 +17,11 @@ typer = "^0.16.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
+tox = "^4.27.0"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[project.scripts]
-rotab = "rotab.cli:main"
+[tool.poetry.scripts]
+rotab = "rotab.core.cli:main"

@@ -11,6 +11,13 @@ class CodeGenerator:
         self.context = context
         self.dag = DagGenerator(templates)
 
+        print("DEBUG (CodeGenerator init - output paths):")
+        for template in self.templates:
+            print(f"Template: {template.name}")
+            for process in template.processes:
+                for node in process.outputs:
+                    print(f" - output path: {node.path}")
+
     def _resolve_template_order(self) -> List[TemplateNode]:
         from collections import defaultdict, deque
 
@@ -59,15 +66,15 @@ class CodeGenerator:
             result[template.name] = template.generate_script(self.context)
         return result
 
-    def write_all(self, output_dir: str) -> None:
+    def write_all(self, source_dir: str) -> None:
         """
-        Write scripts to output_dir/template_name/process_name.py
-        Also generates output_dir/main.py that calls all processes in dependency order.
+        Write scripts to source_dir/template_name/process_name.py
+        Also generates source_dir/main.py that calls all processes in dependency order.
         """
         all_calls = []
 
         for template in self._resolve_template_order():
-            template_dir = os.path.join(output_dir, template.name)
+            template_dir = os.path.join(source_dir, template.name)
             os.makedirs(template_dir, exist_ok=True)
 
             script_map = template.generate_script(self.context)
@@ -82,7 +89,7 @@ class CodeGenerator:
                 all_calls.append((import_stmt, call_stmt))
 
         # main.py を生成
-        main_path = os.path.join(output_dir, "main.py")
+        main_path = os.path.join(source_dir, "main.py")
         with open(main_path, "w", encoding="utf-8") as f:
             f.write("import os\nimport sys\n")
             f.write("project_root = os.path.dirname(os.path.abspath(__file__))\n")
