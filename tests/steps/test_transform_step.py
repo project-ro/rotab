@@ -1,6 +1,6 @@
 import pytest
 import ast
-import textwrap
+from typing import List
 from rotab.ast.step_node import TransformStep
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from conftest import INDENT
@@ -43,7 +43,7 @@ def test_transform_step_generate_script(base_context: ValidationContext, step, e
     step.validate(base_context)
     script = step.generate_script()
 
-    def normalize_code(code_lines: list[str]) -> str:
+    def normalize_code(code_lines: List[str]) -> str:
         return "\n".join(code_lines)
 
     def ast_equal(code1: str, code2: str) -> bool:

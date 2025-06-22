@@ -1,6 +1,6 @@
 import importlib.util
 import importlib
-from typing import List
+from typing import List, Optional
 import types
 import uuid
 from rotab.ast.template_node import TemplateNode
@@ -18,7 +18,7 @@ class ContextBuilder:
         module = importlib.import_module(module_name)
         return {k: v for k, v in vars(module).items() if isinstance(v, types.FunctionType) and not k.startswith("_")}
 
-    def _load_file_functions(self, path: str | None) -> dict:
+    def _load_file_functions(self, path: Optional[str]) -> dict:
         if not path:
             return {}
 

@@ -2,7 +2,13 @@ import os
 from pydantic import BaseModel
 from typing import Optional, Any, List
 from abc import ABC, abstractmethod
-from pydantic import TypeAdapter
+
+try:
+    from pydantic import TypeAdapter
+
+    _USE_TYPE_ADAPTER = True
+except ImportError:
+    _USE_TYPE_ADAPTER = False
 
 
 class Node(BaseModel, ABC):
@@ -59,4 +65,7 @@ class Node(BaseModel, ABC):
 
     @classmethod
     def from_dict(cls, data: dict, schema_manager=None):
-        return TypeAdapter(cls).validate_python(data, by_alias=True)
+        if _USE_TYPE_ADAPTER:
+            return TypeAdapter(cls).validate_python(data)
+        else:
+            return cls(**data)  # Pydantic v1 fallback

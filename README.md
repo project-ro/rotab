@@ -1,9 +1,9 @@
-# ROTab
+# ROTAB
 
 **A template that moves with your thinking.**
 **Fully compatible with LLM-based generation and validation.**
 
-**ROTab** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.
+**ROTAB** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.
 No implementation code required—just describe what you want to do.
 This is the minimal system designed to realize that philosophy.
 
@@ -17,7 +17,7 @@ This is the minimal system designed to realize that philosophy.
 - When you need to rapidly prototype and test different processing pipelines
 - When you want to visualize the entire pandas-compliant workflow as a clear structure
 
-## What ROTab Offers
+## What ROTAB Offers
 
 - Intuitive, readable syntax for describing processing logic—even for non-engineers
 - No scripting or boilerplate code—just write a YAML template
@@ -117,7 +117,7 @@ This allows dynamic and reusable templates by separating logic from configuratio
 ### Running the Pipeline
 
 ```bash
-rotab \
+ROTAB \
   --template-dir ./examples/config/templates \
   --param-dir ./examples/config/params \
   --schema-dir ./examples/config/schemas \
@@ -138,8 +138,8 @@ rotab \
 ```python
 import os
 import pandas as pd
-from rotab.core.operation.derive_funcs import *
-from rotab.core.operation.transform_funcs import *
+from ROTAB.core.operation.derive_funcs import *
+from ROTAB.core.operation.transform_funcs import *
 
 
 def step_filter_users_main_transaction_enrichment(user):

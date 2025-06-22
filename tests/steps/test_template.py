@@ -1,4 +1,5 @@
 import pytest
+from typing import List
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.process_node import ProcessNode
 from rotab.ast.io_node import InputNode, OutputNode
@@ -134,7 +135,7 @@ from rotab.ast.util import INDENT
         )
     ],
 )
-def test_template_node_generation(process: ProcessNode, expected_script: list[str]):
+def test_template_node_generation(process: ProcessNode, expected_script: List[str]):
     context = ValidationContext(
         available_vars={inp.name for inp in process.inputs},
         eval_scope={"merge": lambda left, right, on: None, "log": lambda x: None},

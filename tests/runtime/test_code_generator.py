@@ -1,6 +1,7 @@
 import os
 import tempfile
 import pytest
+from typing import List
 from rotab.runtime.code_generator import CodeGenerator
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.process_node import ProcessNode
@@ -11,7 +12,7 @@ from rotab.ast.util import INDENT
 
 
 @pytest.fixture
-def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str], list[str]]:
+def template_and_context() -> tuple[TemplateNode, ValidationContext, List[str], List[str]]:
     process = ProcessNode(
         name="full_process",
         inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],

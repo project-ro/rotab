@@ -9,7 +9,11 @@ from rotab.ast.util import INDENT
 from rotab.ast.node import Node
 from rotab.ast.step_node import MutateStep, TransformStep
 from typing import Union
-from typing import Annotated
+
+try:
+    from typing import Annotated  # Python 3.9+
+except ImportError:
+    from typing_extensions import Annotated  # Python 3.8
 
 StepUnion = Annotated[Union[MutateStep, TransformStep], Field(discriminator="type")]
 
