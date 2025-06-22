@@ -2,6 +2,44 @@ import pandas as pd
 from typing import List, Dict, Any
 
 
+def normalize_dtype(dtype: str) -> str:
+    mapping = {
+        "int": "int64",
+        "float": "float64",
+        "str": "object",
+        "string": "object",
+        "datetime": "datetime64[ns]",
+        "bool": "bool",
+        "object": "object",
+    }
+    return mapping.get(dtype, dtype)
+
+
+def validate_table_schema(df: pd.DataFrame, columns: List[dict]) -> bool:
+    supported_dtypes = {"int64", "float64", "object", "bool", "datetime64[ns]"}
+
+    # 最初に構文チェック（これがないと TypeError になる）
+    if not isinstance(columns, list) or not all(isinstance(c, dict) for c in columns):
+        raise ValueError("Invalid schema: 'columns' must be a list of dicts")
+
+    for col_def in columns:
+        col_name = col_def["name"]
+        schema_dtype_raw = col_def["dtype"]
+        expected = normalize_dtype(schema_dtype_raw)
+
+        if expected not in supported_dtypes:
+            raise ValueError(f"Unsupported type in schema: {schema_dtype_raw} for column: {col_name}")
+
+        if col_name not in df.columns:
+            raise ValueError(f"Missing required column: {col_name}")
+
+        actual = str(df[col_name].dtype)
+        if actual != expected:
+            raise ValueError(f"Type mismatch for column '{col_name}': expected {expected}, got {actual}")
+
+    return True
+
+
 def sort_by(table: pd.DataFrame, column: str, ascending: bool = True) -> pd.DataFrame:
     """
     Sort the table by a specific column.

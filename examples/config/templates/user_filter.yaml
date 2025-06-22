@@ -1,0 +1,21 @@
+name: user_filter_template
+processes:
+  - name: user_filter
+    description: Filter users under 30
+    io:
+      inputs:
+        - name: user
+          io_type: csv
+          path: ../../data/user.csv
+      outputs:
+        - name: filtered_users
+          io_type: csv
+          path: ../../source/outputs/filtered_users.csv
+    steps:
+      - name: filter_users
+        with: user
+        mutate:
+          - filter: age < 30
+          - derive: age_group = age // 10
+          - select: [user_id, age, age_group]
+        as: filtered_users

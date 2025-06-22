@@ -1,0 +1,59 @@
+name: main_template
+
+depends:
+  - user_filter_template
+  - transaction_summary_template
+
+processes:
+  - name: transaction_enrichment
+    description: |
+      This process enriches user transactions by filtering users based on age and
+      transactions based on amount, then merging the two datasets.
+    io:
+      inputs:
+        - name: user
+          io_type: csv
+          path: ../../source/outputs/filtered_users.csv # relative to this file path
+          schema: user # optional, corresponds to the schema in <schema_dir>/user.yaml
+
+        - name: trans
+          io_type: csv
+          path: ../../source/outputs/filtered_transactions.csv
+          schema: trans
+
+      outputs:
+        - name: final_output
+          io_type: csv
+          path: ../../source/outputs/final_output.csv
+          schema: final_output
+
+    steps:
+      - name: filter_users_main
+        with: user
+        mutate:
+          - filter: age > ${params.min_age}
+          - derive: |
+              log_age = log(age)
+              age_bucket = age // 10 * 10
+          - select: [user_id, log_age, age_bucket]
+        as: filtered_users
+        when: ${params.test}
+
+      - name: filter_transactions_main
+        with: trans
+        mutate:
+          - filter: amount > 1000
+        as: filtered_trans
+
+      - name: merge_transactions
+        with: [filtered_users, filtered_trans]
+        transform: merge(left=filtered_users, right=filtered_trans, on='user_id')
+        as: enriched
+
+      - name: enrich_transactions
+        with: enriched
+        mutate:
+          - derive: |
+              high_value = amount > 10000
+          - select: ${params.enrich_transactions.columns}
+        as: final_output

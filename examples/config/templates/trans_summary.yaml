@@ -1,0 +1,21 @@
+name: transaction_summary_template
+processes:
+  - name: trans_summary
+    description: Summarize transaction amounts
+    io:
+      inputs:
+        - name: trans
+          io_type: csv
+          path: ../../data/transaction.csv
+      outputs:
+        - name: filtered_transactions
+          io_type: csv
+          path: ../../source/outputs/filtered_transactions.csv
+    steps:
+      - name: summarize_transactions
+        with: trans
+        mutate:
+          - filter: amount > 0
+          - derive: is_large = amount > 5000
+          - select: [user_id, amount, is_large]
+        as: filtered_transactions

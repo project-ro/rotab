@@ -1,10 +1,10 @@
-# ROTab
+# ROTAB
 
-**A template that moves with your thinking.**  
+**A template that moves with your thinking.**
 **Fully compatible with LLM-based generation and validation.**
 
-**RoTab** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.  
-No need to write implementation—just describe what you want to do.  
+**ROTAB** is a lightweight tool that defines data processing using YAML templates and automatically converts them into executable Python code.
+No implementation code required—just describe what you want to do.
 This is the minimal system designed to realize that philosophy.
 
 ---
@@ -17,7 +17,7 @@ This is the minimal system designed to realize that philosophy.
 - When you need to rapidly prototype and test different processing pipelines
 - When you want to visualize the entire pandas-compliant workflow as a clear structure
 
-## What ROTab Offers
+## What ROTAB Offers
 
 - Intuitive, readable syntax for describing processing logic—even for non-engineers
 - No scripting or boilerplate code—just write a YAML template
@@ -32,48 +32,100 @@ This is the minimal system designed to realize that philosophy.
 ### Template Example (YAML)
 
 ```yaml
-settings:
-  generate:
-    path: ../scripts/generated_user_flow.py
-    execute: true
-custom_functions:
-  define_funcs:
-    - ../../custom_functions/define_funcs.py
-  transform_funcs:
-    - ../../custom_functions/transform_funcs.py
+name: main_template
+
+depends:
+  - user_filter_template
+  - transaction_summary_template
+
 processes:
-  - process: transaction_enrichment
-    description: Enrich user data with transaction details
-    tables:
-      - name: user
-        path: ../data/user.csv
-      - name: trans
-        path: ../data/transaction.csv
+  - name: transaction_enrichment
+    description: |
+      This process enriches user transactions by filtering users based on age and
+      transactions based on amount, then merging the two datasets.
+    io:
+      inputs:
+        - name: user
+          io_type: csv
+          path: ../../source/outputs/filtered_users.csv
+          schema: user
+
+        - name: trans
+          io_type: csv
+          path: ../../source/outputs/filtered_transactions.csv
+          schema: trans
+
+      outputs:
+        - name: final_output
+          io_type: csv
+          path: ../../source/outputs/final_output.csv
+          schema: final_output
+
     steps:
-      - with: user
-        filter: age > 18
-        define: |
-          log_age = log(age)
-          age_bucket = age // 10 * 10
-        select: [user_id, log_age, age_bucket]
-      - with: trans
-        filter: amount > 1000
-      - transform: enriched = merge(left=user, right=trans, on='user_id')
-      - with: enriched
-        define: high_value = amount > 10000
-        select: [user_id, log_age, amount, high_value]
-    dumps:
-      - return: enriched
-        path: ../output/final_output.csv
+      - name: filter_users_main
+        with: user
+        mutate:
+          - filter: age > ${params.min_age}
+          - derive: |
+              log_age = log(age)
+              age_bucket = age // 10 * 10
+          - select: [user_id, log_age, age_bucket]
+        as: filtered_users
+        when: ${params.test}
+
+      - name: filter_transactions_main
+        with: trans
+        mutate:
+          - filter: amount > 1000
+        as: filtered_trans
+
+      - name: merge_transactions
+        with: [filtered_users, filtered_trans]
+        transform: merge(left=filtered_users, right=filtered_trans, on='user_id')
+        as: enriched
+
+      - name: enrich_transactions
+        with: enriched
+        mutate:
+          - derive: |
+              high_value = amount > 10000
+          - select: ${params.enrich_transactions.columns}
+        as: final_output
 ```
+
+### Parameter Injection
+
+You can inject values from a parameter YAML file using the \${...} syntax inside your templates.
+The parameter file must be explicitly specified via param_path when loading templates.
+
+For example:
+
+```yaml
+filter: age > ${params.min_age}
+```
+
+The value will be replaced by the corresponding entry in your parameter file, such as:
+
+```yaml
+# params.yaml
+params:
+  min_age: 18
+```
+
+This allows dynamic and reusable templates by separating logic from configuration.
 
 ### Running the Pipeline
 
-```python
-from rotab.core.pipeline import Pipeline
-
-pipeline = Pipeline.from_template_file("examples/config/example.yaml")
-pipeline.run()
+```bash
+ROTAB \
+  --template-dir ./examples/config/templates \
+  --param-dir ./examples/config/params \
+  --schema-dir ./examples/config/schemas \
+  --derive ./custom_functions/new_columns_funcs.py \
+  --transform ./custom_functions/dataframes_funcs.py \
+  --output-dir ./scripts \
+  --execute \
+  --dag
 ```
 
 - Python code is generated at the path specified in the template
@@ -84,61 +136,112 @@ pipeline.run()
 ## 2. Generated Python Code
 
 ```python
-import pandas as pd
-from rotab.core.operation.define_funcs import *
-from rotab.core.operation.transform_funcs import *
-import importlib.util
-
-spec = importlib.util.spec_from_file_location('define_funcs', r'/home/rotab/custom_functions/define_funcs.py')
-define_funcs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(define_funcs)
-globals().update({k: v for k, v in define_funcs.__dict__.items() if callable(v) and not k.startswith('__')})
-
-spec = importlib.util.spec_from_file_location('transform_funcs', r'/home/rotab/custom_functions/transform_funcs.py')
-transform_funcs = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(transform_funcs)
-globals().update({k: v for k, v in transform_funcs.__dict__.items() if callable(v) and not k.startswith('__')})
-
-# [PROCESS_1] Enrich user data with transaction details
-
-user = pd.read_csv(r'/home/rotab/examples/data/user.csv')
-trans = pd.read_csv(r'/home/rotab/examples/data/transaction.csv')
-
-user = user.query('age > 18')
-user['log_age'] = user.apply(lambda row: log(row['age']), axis=1)
-user['age_bucket'] = user.apply(lambda row: row['age'] // 10 * 10, axis=1)
-user = user[['user_id', 'log_age', 'age_bucket']]
-
-trans = trans.query('amount > 1000')
-
-enriched = merge(left=user, right=trans, on='user_id')
-
-enriched['high_value'] = enriched.apply(lambda row: row['amount'] > 10000, axis=1)
-enriched = enriched[['user_id', 'log_age', 'amount', 'high_value']]
-
 import os
-path = os.path.abspath(r'../output/final_output.csv')
-os.makedirs(os.path.dirname(path), exist_ok=True)
-enriched.to_csv(path, index=False)
+import pandas as pd
+from ROTAB.core.operation.derive_funcs import *
+from ROTAB.core.operation.transform_funcs import *
+
+
+def step_filter_users_main_transaction_enrichment(user):
+    if True:
+        filtered_users = user.copy()
+        filtered_users = filtered_users.query('age > 18').copy()
+        filtered_users["log_age"] = filtered_users.apply(lambda row: log(row["age"]), axis=1)
+        filtered_users["age_bucket"] = filtered_users.apply(lambda row: row["age"] // 10 * 10, axis=1)
+        filtered_users = filtered_users[["user_id", "log_age", "age_bucket"]]
+    return filtered_users
+
+
+def step_filter_transactions_main_transaction_enrichment(trans):
+    filtered_trans = trans.copy()
+    filtered_trans = filtered_trans.query('amount > 1000').copy()
+    return filtered_trans
+
+
+def step_merge_transactions_transaction_enrichment(filtered_users, filtered_trans):
+    enriched = merge(left=filtered_users, right=filtered_trans, on='user_id')
+    return enriched
+
+
+def step_enrich_transactions_transaction_enrichment(enriched):
+    final_output = enriched.copy()
+    final_output["high_value"] = final_output.apply(lambda row: row["amount"] > 10000, axis=1)
+    final_output = final_output[["user_id", "log_age", "amount", "high_value"]]
+    return final_output
+
+
+def transaction_enrichment():
+    """This process enriches user transactions by filtering users based on age and
+    transactions based on amount, then merging the two datasets."""
+    user = pd.read_csv("data/outputs/filtered_users.csv", dtype={'id': 'str', 'user_id': 'str', 'age': 'int', 'age_group': 'int'})
+    trans = pd.read_csv("data/outputs/filtered_transactions.csv", dtype={'id': 'str', 'user_id': 'str', 'amount': 'int'})
+    filtered_users = step_filter_users_main_transaction_enrichment(user)
+    filtered_trans = step_filter_transactions_main_transaction_enrichment(trans)
+    enriched = step_merge_transactions_transaction_enrichment(filtered_users, filtered_trans)
+    final_output = step_enrich_transactions_transaction_enrichment(enriched)
+    final_output["user_id"] = final_output["user_id"].astype("str")
+    final_output["log_age"] = final_output["log_age"].astype("float")
+    final_output["amount"] = final_output["amount"].astype("int")
+    final_output["high_value"] = final_output["high_value"].astype("bool")
+    final_output.to_csv("data/outputs/final_output.csv", index=False, columns=['user_id', 'log_age', 'amount', 'high_value'])
+    return final_output
+
+
+if __name__ == "__main__":
+    transaction_enrichment()
 ```
 
 ---
 
 ## 3. Automatic DAG Generation
 
-The template is internally analyzed for dependencies and automatically converted into a DAG.
-
 ```mermaid
-graph TD
-    user_csv[User CSV] --> step1[Filter: age > 18]
-    step1 --> step2[Define: log_age, age_bucket]
-    step2 --> step3[Select columns]
-    trans_csv[Transaction CSV] --> step4[Filter: amount > 1000]
-    step3 --> step5[Merge on user_id]
-    step4 --> step5
-    step5 --> step6[Define: high_value]
-    step6 --> step7[Select columns]
-    step7 --> output[Save: output/final_output.csv]
+graph TB
+%% Nodes
+%% Template: user_filter_template
+subgraph T_user_filter_template ["user_filter_template"]
+  %% Process: user_filter
+  subgraph P_user_filter ["user_filter"]
+    I_user_filter_template__user(["[I]user"])
+    S_user_filter_template__filter_users(["[S]filter_users"])
+    O_user_filter_template__filtered_users(["[O]filtered_users"])
+    I_user_filter_template__user --> S_user_filter_template__filter_users
+    S_user_filter_template__filter_users --> O_user_filter_template__filtered_users
+  end
+end
+%% Template: transaction_summary_template
+subgraph T_transaction_summary_template ["transaction_summary_template"]
+  %% Process: trans_summary
+  subgraph P_trans_summary ["trans_summary"]
+    I_transaction_summary_template__trans(["[I]trans"])
+    S_transaction_summary_template__summarize_transactions(["[S]summarize_transactions"])
+    O_transaction_summary_template__filtered_transactions(["[O]filtered_transactions"])
+    I_transaction_summary_template__trans --> S_transaction_summary_template__summarize_transactions
+    S_transaction_summary_template__summarize_transactions --> O_transaction_summary_template__filtered_transactions
+  end
+end
+%% Template: main_template
+subgraph T_main_template ["main_template"]
+  %% Process: transaction_enrichment
+  subgraph P_transaction_enrichment ["transaction_enrichment"]
+    I_main_template__user(["[I]user"])
+    I_main_template__trans(["[I]trans"])
+    S_main_template__filter_users_main(["[S]filter_users_main"])
+    S_main_template__filter_transactions_main(["[S]filter_transactions_main"])
+    S_main_template__merge_transactions(["[S]merge_transactions"])
+    S_main_template__enrich_transactions(["[S]enrich_transactions"])
+    O_main_template__final_output(["[O]final_output"])
+    I_main_template__user --> S_main_template__filter_users_main
+    I_main_template__trans --> S_main_template__filter_transactions_main
+    S_main_template__filter_users_main --> S_main_template__merge_transactions
+    S_main_template__filter_transactions_main --> S_main_template__merge_transactions
+    S_main_template__merge_transactions --> S_main_template__enrich_transactions
+    S_main_template__enrich_transactions --> O_main_template__final_output
+  end
+end
+%% Template Dependencies
+T_user_filter_template --> T_main_template
+T_transaction_summary_template --> T_main_template
 ```
 
 ---
@@ -186,7 +289,7 @@ graph TD
 | `drop_duplicates(table, subset=None)`                        | Remove duplicate rows                             |
 | `merge(left, right, on, how='inner')`                        | Merge two dataframes on a column                  |
 | `reshape(table, column_to, columns_from, column_value, agg)` | Pivot/melt depending on parameters                |
-| `fillna(table, mapping)`                                     | Fill missing values. Example: `{"age": 0}`        |
+| `fillna(table, mapping)`                                     | Fill missing values. Example: `{ "age": 0 }`      |
 | `sample(table, frac)`                                        | Random sample by fraction                         |
 | `concat(tables)`                                             | Concatenate tables vertically                     |
 | `drop_na(table, subset=None)`                                | Drop rows with missing values                     |
@@ -197,5 +300,4 @@ graph TD
 ## License
 
 MIT License
-
 Copyright (c) 2025 PROJECT RO

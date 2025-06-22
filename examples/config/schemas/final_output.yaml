@@ -1,0 +1,15 @@
+name: final_output
+description: Enriched user and transaction data
+columns:
+  - name: user_id
+    dtype: str
+    description: Unique identifier for each user
+  - name: log_age
+    dtype: float
+    description: Logarithm of the user's age
+  - name: amount
+    dtype: int
+    description: Amount of the transaction
+  - name: high_value
+    dtype: bool
+    description: Flag indicating if the transaction amount is greater than 10000
