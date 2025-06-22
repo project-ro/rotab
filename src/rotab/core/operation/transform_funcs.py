@@ -15,7 +15,7 @@ def normalize_dtype(dtype: str) -> str:
     return mapping.get(dtype, dtype)
 
 
-def validate_table_schema(df: pd.DataFrame, columns: list[dict]) -> bool:
+def validate_table_schema(df: pd.DataFrame, columns: List[dict]) -> bool:
     supported_dtypes = {"int64", "float64", "object", "bool", "datetime64[ns]"}
 
     # 最初に構文チェック（これがないと TypeError になる）

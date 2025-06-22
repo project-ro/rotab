@@ -1,13 +1,16 @@
+name: user_filter_template
 processes:
   - name: user_filter
     description: Filter users under 30
     io:
       inputs:
         - name: user
+          io_type: csv
           path: ../../data/user.csv
       outputs:
         - name: filtered_users
-          path: ../../output/filtered_users.csv
+          io_type: csv
+          path: ../../source/outputs/filtered_users.csv
     steps:
       - name: filter_users
         with: user
