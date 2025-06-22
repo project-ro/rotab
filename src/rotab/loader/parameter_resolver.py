@@ -2,6 +2,9 @@ import os
 import re
 import yaml
 from typing import Any, Dict
+from rotab.utils.logger import get_logger
+
+logger = get_logger()
 
 
 class ParameterResolver:
@@ -14,7 +17,7 @@ class ParameterResolver:
     def _load_params(self) -> Dict[str, Any]:
         combined: Dict[str, Any] = {}
         for filename in os.listdir(self.param_dir):
-            if filename.endswith(".yaml") or filename.endswith(".yml"):
+            if filename.endswith((".yaml", ".yml")):
                 path = os.path.join(self.param_dir, filename)
                 with open(path, "r") as f:
                     data = yaml.safe_load(f)
@@ -24,6 +27,7 @@ class ParameterResolver:
                         if key in combined:
                             raise ValueError(f"Duplicate parameter key '{key}' found in {filename}")
                         combined[key] = data[key]
+                logger.info(f"Loaded parameters from {filename}")
         return combined
 
     def resolve(self, obj: Any) -> Any:
@@ -39,22 +43,16 @@ class ParameterResolver:
     def _resolve_string(self, s: str) -> Any:
         match = self.PARAM_PATTERN.fullmatch(s)
         if match:
-            key_path = match.group(1).split(".")
-            value = self.params
-            for key in key_path:
-                if not isinstance(value, dict) or key not in value:
-                    raise KeyError(f"Parameter '{match.group(1)}' not found in parameter files.")
-                value = value[key]
-            return value  # 型そのまま返す（リストならリスト）
+            return self._lookup_param(match.group(1))
         else:
+            return self.PARAM_PATTERN.sub(lambda m: str(self._lookup_param(m.group(1))), s)
 
-            def replace(m):
-                key_path = m.group(1).split(".")
-                value = self.params
-                for key in key_path:
-                    if not isinstance(value, dict) or key not in value:
-                        raise KeyError(f"Parameter '{m.group(1)}' not found in parameter files.")
-                    value = value[key]
-                return str(value)  # 部分展開はstrで埋め込む
-
-            return self.PARAM_PATTERN.sub(replace, s)
+    def _lookup_param(self, path: str) -> Any:
+        keys = path.split(".")
+        value = self.params
+        for key in keys:
+            if not isinstance(value, dict) or key not in value:
+                logger.warning(f"Failed to resolve parameter: {path}")
+                raise KeyError(f"Parameter '{path}' not found in parameter files.")
+            value = value[key]
+        return value

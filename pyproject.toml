@@ -24,4 +24,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-rotab = "rotab.core.cli:main"
+rotab = "rotab.cli.cli:main"

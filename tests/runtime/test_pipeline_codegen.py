@@ -5,7 +5,7 @@ import yaml
 import subprocess
 from typing import Tuple
 
-from rotab.runtime.pipeline import Pipeline
+from rotab.core.pipeline import Pipeline
 
 
 def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:

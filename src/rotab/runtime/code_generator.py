@@ -11,13 +11,6 @@ class CodeGenerator:
         self.context = context
         self.dag = DagGenerator(templates)
 
-        print("DEBUG (CodeGenerator init - output paths):")
-        for template in self.templates:
-            print(f"Template: {template.name}")
-            for process in template.processes:
-                for node in process.outputs:
-                    print(f" - output path: {node.path}")
-
     def _resolve_template_order(self) -> List[TemplateNode]:
         from collections import defaultdict, deque
 

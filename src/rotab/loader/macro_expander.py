@@ -1,6 +1,9 @@
 from copy import deepcopy
 from typing import Any, Dict, List
 import re
+from rotab.utils.logger import get_logger
+
+logger = get_logger()
 
 
 class MacroExpander:
@@ -27,48 +30,47 @@ class MacroExpander:
         if not isinstance(args, dict):
             raise TypeError("`args` must be a dictionary.")
 
-        caller_step_name = use_step["name"]  # 呼び出し元ステップ名をそのまま使う
+        caller_step_name = use_step["name"]
+
+        raw_steps = self.macro_map[macro_name]
+        if not isinstance(raw_steps, list):
+            raise ValueError("Macro steps must be a list.")
 
         expanded_steps = []
-        for raw_step in self.macro_map[macro_name]:
-            if not isinstance(self.macro_map[macro_name], list):
-                raise ValueError("Macro steps must be a list.")
-
+        for raw_step in raw_steps:
             step = deepcopy(raw_step)
             self._replace_macro_vars(step, use_step)
-
-            # ステップ名は caller の名前で上書き
             step["name"] = caller_step_name
-
             expanded_steps.append(step)
+
+        logger.info(f"Expanded macro `{macro_name}` into {len(expanded_steps)} steps.")
         return expanded_steps
 
     def _replace_macro_vars(self, step: Dict[str, Any], use_step: Dict[str, Any]) -> None:
-        caller = {"with": use_step.get("with"), "as": use_step.get("as")}
+        caller_with = use_step.get("with")
+        caller_as = use_step.get("as")
         args = use_step.get("args", {})
 
-        if caller["with"] is None:
+        if caller_with is None:
             raise ValueError(f"Macro call is missing required `with` field: {use_step}")
-        if caller["as"] is None:
+        if caller_as is None:
             raise ValueError(f"Macro call is missing required `as` field: {use_step}")
 
         def replace(val: Any) -> Any:
             if isinstance(val, str):
-                val = val.replace("${caller.with}", str(caller["with"]))
-                val = val.replace("${caller.as}", str(caller["as"]))
+                val = val.replace("${caller.with}", str(caller_with))
+                val = val.replace("${caller.as}", str(caller_as))
 
-                matches = re.findall(r"\$\{args\.([^\}]+)\}", val)
-                for key in matches:
-                    if key not in args:
-                        raise KeyError(f"Missing argument: args.{key}")
-                    replacement = args[key]
+                for match in re.findall(r"\$\{args\.([^\}]+)\}", val):
+                    if match not in args:
+                        raise KeyError(f"Missing argument: args.{match}")
+                    replacement = args[match]
                     if isinstance(replacement, (list, dict)):
-                        if val.strip() == f"${{args.{key}}}":
+                        if val.strip() == f"${{args.{match}}}":
                             return replacement
-                        else:
-                            val = val.replace(f"${{args.{key}}}", str(replacement))
+                        val = val.replace(f"${{args.{match}}}", str(replacement))
                     else:
-                        val = val.replace(f"${{args.{key}}}", str(replacement))
+                        val = val.replace(f"${{args.{match}}}", str(replacement))
                 return val
 
             elif isinstance(val, list):

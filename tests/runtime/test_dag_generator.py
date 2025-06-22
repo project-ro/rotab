@@ -27,7 +27,7 @@ def generator():
 
     proc_a1 = ProcessNode(
         name="proc_a1",
-        inputs=[InputNode(name="df1", io_type="csv", path="df1.csv", schema="schema1")],
+        inputs=[InputNode(name="df1", io_type="csv", path="df1.csv", schema_name="schema1")],
         steps=[
             MutateStep(
                 name="mutate_a1", input_vars=["df1"], output_vars=["tmp_a"], operations=[{"derive": "x = age + 1"}]
@@ -36,25 +36,25 @@ def generator():
                 name="transform_a1", input_vars=["tmp_a"], output_vars=["out_a"], expr="merge(tmp_a, tmp_a, on='age')"
             ),
         ],
-        outputs=[OutputNode(name="out_a", io_type="csv", path="out_a.csv", schema=None)],
+        outputs=[OutputNode(name="out_a", io_type="csv", path="out_a.csv", schema_name=None)],
     )
 
     proc_a2 = ProcessNode(
         name="proc_a2",
-        inputs=[InputNode(name="df2", io_type="csv", path="df2.csv", schema="schema2")],
+        inputs=[InputNode(name="df2", io_type="csv", path="df2.csv", schema_name="schema2")],
         steps=[
             MutateStep(
                 name="mutate_a2", input_vars=["df2"], output_vars=["tmp_a2"], operations=[{"derive": "z = id * 2"}]
             ),
         ],
-        outputs=[OutputNode(name="tmp_a2", io_type="csv", path="tmp_a2.csv", schema=None)],
+        outputs=[OutputNode(name="tmp_a2", io_type="csv", path="tmp_a2.csv", schema_name=None)],
     )
 
     tpl_a = TemplateNode(name="tpl_a", processes=[proc_a1, proc_a2])
 
     proc_b1 = ProcessNode(
         name="proc_b1",
-        inputs=[InputNode(name="df3", io_type="csv", path="df3.csv", schema="schema3")],
+        inputs=[InputNode(name="df3", io_type="csv", path="df3.csv", schema_name="schema3")],
         steps=[
             TransformStep(
                 name="transform_b1",
@@ -63,7 +63,7 @@ def generator():
                 expr="merge(df3, tmp_a2, on='id')",
             ),
         ],
-        outputs=[OutputNode(name="out_b", io_type="csv", path="out_b.csv", schema=None)],
+        outputs=[OutputNode(name="out_b", io_type="csv", path="out_b.csv", schema_name=None)],
     )
 
     tpl_b = TemplateNode(name="tpl_b", depends=["tpl_a"], processes=[proc_b1])
@@ -220,7 +220,7 @@ def test_generate_mermaid_with_template_namespacing():
         processes=[
             ProcessNode(
                 name="user_filter",
-                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="schema_user")],
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="schema_user")],
                 steps=[
                     MutateStep(
                         name="filter_users",
@@ -233,11 +233,13 @@ def test_generate_mermaid_with_template_namespacing():
                         ],
                     )
                 ],
-                outputs=[OutputNode(name="filtered_users", io_type="csv", path="filtered_users.csv", schema=None)],
+                outputs=[OutputNode(name="filtered_users", io_type="csv", path="filtered_users.csv", schema_name=None)],
             ),
             ProcessNode(
                 name="trans_summary",
-                inputs=[InputNode(name="transaction", io_type="csv", path="transaction.csv", schema="schema_trans")],
+                inputs=[
+                    InputNode(name="transaction", io_type="csv", path="transaction.csv", schema_name="schema_trans")
+                ],
                 steps=[
                     MutateStep(
                         name="summarize_transactions",
@@ -252,7 +254,7 @@ def test_generate_mermaid_with_template_namespacing():
                 ],
                 outputs=[
                     OutputNode(
-                        name="filtered_transactions", io_type="csv", path="filtered_transactions.csv", schema=None
+                        name="filtered_transactions", io_type="csv", path="filtered_transactions.csv", schema_name=None
                     )
                 ],
             ),
@@ -266,9 +268,9 @@ def test_generate_mermaid_with_template_namespacing():
             ProcessNode(
                 name="transaction_enrichment",
                 inputs=[
-                    InputNode(name="filtered_users", io_type="csv", path="filtered_users.csv", schema=None),
+                    InputNode(name="filtered_users", io_type="csv", path="filtered_users.csv", schema_name=None),
                     InputNode(
-                        name="filtered_transactions", io_type="csv", path="filtered_transactions.csv", schema=None
+                        name="filtered_transactions", io_type="csv", path="filtered_transactions.csv", schema_name=None
                     ),
                 ],
                 steps=[
@@ -285,11 +287,11 @@ def test_generate_mermaid_with_template_namespacing():
                         operations=[{"derive": "status = 'ok'"}, {"select": ["user_id", "status"]}],
                     ),
                 ],
-                outputs=[OutputNode(name="enriched", io_type="csv", path="enriched.csv", schema=None)],
+                outputs=[OutputNode(name="enriched", io_type="csv", path="enriched.csv", schema_name=None)],
             ),
             ProcessNode(
                 name="dummy_proc",
-                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="schema_user")],
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="schema_user")],
                 steps=[
                     MutateStep(
                         name="noop_step",
@@ -298,7 +300,7 @@ def test_generate_mermaid_with_template_namespacing():
                         operations=[{"derive": "dummy = 1"}, {"select": ["dummy"]}],
                     )
                 ],
-                outputs=[OutputNode(name="noop_out", io_type="csv", path="noop.csv", schema=None)],
+                outputs=[OutputNode(name="noop_out", io_type="csv", path="noop.csv", schema_name=None)],
             ),
         ],
     )

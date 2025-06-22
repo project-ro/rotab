@@ -5,7 +5,7 @@ import yaml
 import sys
 import pytest
 from unittest.mock import patch
-from rotab.core.cli import main
+from rotab.cli.cli import main
 
 
 def write_yaml(path, data):

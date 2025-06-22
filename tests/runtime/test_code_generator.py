@@ -14,7 +14,7 @@ from rotab.ast.util import INDENT
 def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str], list[str]]:
     process = ProcessNode(
         name="full_process",
-        inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="user")],
+        inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
         steps=[
             MutateStep(
                 name="mutate_step",
@@ -30,7 +30,7 @@ def template_and_context() -> tuple[TemplateNode, ValidationContext, list[str], 
                 name="transform_step", input_vars=["mutated"], expr="transform_func(mutated)", output_vars=["result"]
             ),
         ],
-        outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema="result")],
+        outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name="result")],
     )
 
     template = TemplateNode(name="test_template", depends=[], processes=[process])

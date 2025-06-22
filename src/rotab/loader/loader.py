@@ -1,13 +1,14 @@
 import os
 import yaml
 from typing import List
-from copy import deepcopy
 
 from rotab.loader.parameter_resolver import ParameterResolver
 from rotab.loader.macro_expander import MacroExpander
 from rotab.loader.schema_manager import SchemaManager
-
 from rotab.ast.template_node import TemplateNode
+from rotab.utils.logger import get_logger
+
+logger = get_logger()
 
 
 class Loader:
@@ -17,6 +18,7 @@ class Loader:
         self.schema_manager = schema_manager
 
     def load(self) -> List[TemplateNode]:
+        logger.info("Loading templates...")
         templates = self._load_all_templates()
         sorted_templates = self._resolve_dependencies(templates)
         return [self._to_node(t) for t in sorted_templates]
@@ -24,46 +26,48 @@ class Loader:
     def _load_all_templates(self) -> List[dict]:
         templates = []
         for filename in os.listdir(self.template_dir):
-            if filename.endswith(".yaml") or filename.endswith(".yml"):
-                path = os.path.join(self.template_dir, filename)
-                with open(path, "r") as f:
-                    raw = yaml.safe_load(f)
-                    if not isinstance(raw, dict):
-                        raise ValueError(f"Invalid YAML format in {filename}")
+            if not (filename.endswith(".yaml") or filename.endswith(".yml")):
+                continue
 
-                    global_macros = raw.get("macros", {})
+            path = os.path.join(self.template_dir, filename)
+            logger.info(f"Parsing template file: {filename}")
+            with open(path, "r") as f:
+                raw = yaml.safe_load(f)
+                if not isinstance(raw, dict):
+                    raise ValueError(f"Invalid YAML format in {filename}")
 
-                    if "processes" in raw:
-                        for process in raw["processes"]:
-                            # --- スキーマ存在チェック ---
-                            for io_section in ("inputs", "outputs"):
-                                for io_def in process.get("io", {}).get(io_section, []):
-                                    schema_name = io_def.get("schema")
-                                    if schema_name:
-                                        self.schema_manager.get_schema(schema_name)
-                            # --------------------------
+                global_macros = raw.get("macros", {})
 
-                            macro_definitions = process.get("macros", global_macros)
-                            expander = MacroExpander(macro_definitions)
-                            if "steps" in process:
-                                process["steps"] = expander.expand(process["steps"])
-                            if "macros" in process:
-                                del process["macros"]
-                        if "macros" in raw:
-                            del raw["macros"]
+                if "processes" in raw:
+                    for process in raw["processes"]:
+                        # --- schema existence check ---
+                        for io_section in ("inputs", "outputs"):
+                            for io_def in process.get("io", {}).get(io_section, []):
+                                schema_name = io_def.get("schema")
+                                if schema_name:
+                                    self.schema_manager.get_schema(schema_name)
+                        # --------------------------------
 
-                    # `with` → `input_vars` に変換（Macro展開後に実施）
-                    normalized = self._replace_with_key(raw)
-
-                    # type付与＋フィールド名変換（mutate→operations等）
-                    for process in normalized.get("processes", []):
-                        process = self._preprocess_io_dict(process)
+                        macro_definitions = process.get("macros", global_macros)
+                        expander = MacroExpander(macro_definitions)
                         if "steps" in process:
-                            process["steps"] = [self._preprocess_step_dict(step) for step in process["steps"]]
+                            process["steps"] = expander.expand(process["steps"])
+                        if "macros" in process:
+                            del process["macros"]
+                    if "macros" in raw:
+                        del raw["macros"]
 
-                    resolved = self.param_resolver.resolve(normalized)
-                    resolved["__filename__"] = filename
-                    templates.append(resolved)
+                normalized = self._replace_with_key(raw)
+
+                for process in normalized.get("processes", []):
+                    process = self._preprocess_io_dict(process)
+                    if "steps" in process:
+                        process["steps"] = [self._preprocess_step_dict(step) for step in process["steps"]]
+
+                resolved = self.param_resolver.resolve(normalized)
+                resolved["__filename__"] = filename
+                templates.append(resolved)
+        logger.info(f"Loaded {len(templates)} templates.")
         return templates
 
     def _preprocess_step_dict(self, step: dict) -> dict:
@@ -87,7 +91,9 @@ class Loader:
             for io_def in io_list:
                 io_def.setdefault("type", "input" if io_key == "inputs" else "output")
                 io_def.setdefault("path", "")
-                io_def.setdefault("schema", "")
+                if "schema" in io_def:
+                    io_def["schema_name"] = io_def.pop("schema")
+                io_def.setdefault("schema_name", "")
                 if "name" not in io_def:
                     raise ValueError(
                         f"Missing `name` in {io_key} definition of process `{process.get('name', '<unnamed>')}`"

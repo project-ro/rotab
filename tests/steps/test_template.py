@@ -15,9 +15,9 @@ from rotab.ast.util import INDENT
                 name="transaction_enrichment",
                 description="This process enriches user transactions by filtering users based on age and\ntransactions based on amount, then merging the two datasets.",
                 inputs=[
-                    InputNode(name="user", io_type="csv", path="../../output/filtered_users.csv", schema="user"),
+                    InputNode(name="user", io_type="csv", path="../../output/filtered_users.csv", schema_name="user"),
                     InputNode(
-                        name="trans", io_type="csv", path="../../output/filtered_transactions.csv", schema="trans"
+                        name="trans", io_type="csv", path="../../output/filtered_transactions.csv", schema_name="trans"
                     ),
                 ],
                 steps=[
@@ -57,7 +57,10 @@ from rotab.ast.util import INDENT
                 ],
                 outputs=[
                     OutputNode(
-                        name="final_output", io_type="csv", path="../../output/final_output.csv", schema="final_output"
+                        name="final_output",
+                        io_type="csv",
+                        path="../../output/final_output.csv",
+                        schema_name="final_output",
                     ),
                 ],
             ),

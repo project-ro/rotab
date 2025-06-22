@@ -54,8 +54,8 @@ def test_context_builder():
             processes=[
                 ProcessNode(
                     name="dummy_process",
-                    inputs=[InputNode(name="input_df", io_type="csv", path="dummy.csv", schema="input_df")],
-                    outputs=[OutputNode(name="output_df", io_type="csv", path="out.csv", schema="output_df")],
+                    inputs=[InputNode(name="input_df", io_type="csv", path="dummy.csv", schema_name="input_df")],
+                    outputs=[OutputNode(name="output_df", io_type="csv", path="out.csv", schema_name="output_df")],
                     steps=[],
                 )
             ],
@@ -119,8 +119,8 @@ def test_context_builder_function_name_conflict():
             processes=[
                 ProcessNode(
                     name="dummy_process",
-                    inputs=[InputNode(name="input", io_type="csv", path="in.csv", schema="input")],
-                    outputs=[OutputNode(name="output", io_type="csv", path="out.csv", schema="output")],
+                    inputs=[InputNode(name="input", io_type="csv", path="in.csv", schema_name="input")],
+                    outputs=[OutputNode(name="output", io_type="csv", path="out.csv", schema_name="output")],
                     steps=[],
                 )
             ],

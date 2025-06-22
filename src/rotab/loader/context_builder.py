@@ -72,12 +72,12 @@ class ContextBuilder:
             for proc in tpl.processes:
                 for inp in proc.inputs:
                     available_vars.add(inp.name)
-                    if inp.schema:
-                        schemas[inp.name] = self.schema_manager.get_schema(inp.schema)
+                    if inp.schema_name:
+                        schemas[inp.name] = self.schema_manager.get_schema(inp.schema_name)
                 for out in proc.outputs:
                     available_vars.add(out.name)
-                    if out.schema:
-                        schemas[out.name] = self.schema_manager.get_schema(out.schema)
+                    if out.schema_name:
+                        schemas[out.name] = self.schema_manager.get_schema(out.schema_name)
 
         return ValidationContext(
             derive_func_path=self.derive_func_path,

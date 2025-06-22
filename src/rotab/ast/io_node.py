@@ -8,7 +8,7 @@ class IOBaseNode(Node):
     name: str
     io_type: str
     path: str
-    schema: Optional[str] = None
+    schema_name: Optional[str] = None
 
     def to_dict(self) -> dict:
         base = super().to_dict()
@@ -16,7 +16,7 @@ class IOBaseNode(Node):
             {
                 "io_type": self.io_type,
                 "path": self.path,
-                "schema": self.schema,
+                "schema_name": self.schema_name,
             }
         )
         return base
@@ -31,10 +31,10 @@ class InputNode(IOBaseNode):
 
         context.available_vars.add(self.name)
 
-        if self.schema:
-            if self.schema not in context.schemas:
-                raise ValueError(f"[{self.name}] Schema '{self.schema}' not found in scope.")
-            schema_info = context.schemas[self.schema]
+        if self.schema_name:
+            if self.schema_name not in context.schemas:
+                raise ValueError(f"[{self.name}] Schema '{self.schema_name}' not found in scope.")
+            schema_info = context.schemas[self.schema_name]
             context.schemas[self.name] = VariableInfo(type="dataframe", columns=schema_info.columns.copy())
         else:
             context.schemas[self.name] = VariableInfo(type="dataframe", columns={})
@@ -62,13 +62,13 @@ class OutputNode(IOBaseNode):
         if self.name not in context.available_vars:
             raise ValueError(f"[{self.name}] Output variable '{self.name}' is not defined in scope.")
 
-        if self.schema and self.schema not in context.schemas:
-            raise ValueError(f"[{self.name}] Schema '{self.schema}' not found in scope.")
+        if self.schema_name and self.schema_name not in context.schemas:
+            raise ValueError(f"[{self.name}] Schema '{self.schema_name}' not found in scope.")
 
     def generate_script(self, context: ValidationContext) -> List[str]:
         scripts = []
 
-        schema_key = self.schema or self.name
+        schema_key = self.schema_name or self.name
         var_info = context.schemas.get(schema_key)
 
         if isinstance(var_info, VariableInfo) and var_info.columns:

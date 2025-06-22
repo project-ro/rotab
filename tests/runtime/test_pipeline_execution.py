@@ -4,7 +4,7 @@ import yaml
 import pandas as pd
 import textwrap
 
-from rotab.runtime.pipeline import Pipeline
+from rotab.core.pipeline import Pipeline
 
 
 def setup_full_test_env(tmpdir: str):

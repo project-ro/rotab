@@ -4,7 +4,7 @@ from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 
 
 def test_input_node_with_columns(base_context: ValidationContext):
-    node = InputNode(name="user", io_type="csv", path="data/users.csv", schema="user")
+    node = InputNode(name="user", io_type="csv", path="data/users.csv", schema_name="user")
 
     node.validate(base_context)
     script = node.generate_script(base_context)
@@ -21,7 +21,7 @@ def test_input_node_without_columns():
         schemas={},
     )
 
-    node = InputNode(name="empty_df", io_type="csv", path="data/empty.csv", schema=None)
+    node = InputNode(name="empty_df", io_type="csv", path="data/empty.csv", schema_name=None)
 
     node.validate(context)
     script = node.generate_script(context)
@@ -29,7 +29,7 @@ def test_input_node_without_columns():
 
 
 def test_output_node_with_columns(base_context: ValidationContext):
-    node = OutputNode(name="user", io_type="csv", path="data/users_out.csv", schema="user")
+    node = OutputNode(name="user", io_type="csv", path="data/users_out.csv", schema_name="user")
 
     node.validate(base_context)
     script = node.generate_script(base_context)
@@ -53,7 +53,7 @@ def test_output_node_without_columns():
         schemas={"no_schema_df": VariableInfo(type="dataframe", columns={})},
     )
 
-    node = OutputNode(name="no_schema_df", io_type="csv", path="data/no_schema.csv", schema=None)
+    node = OutputNode(name="no_schema_df", io_type="csv", path="data/no_schema.csv", schema_name=None)
 
     node.validate(context)
     script = node.generate_script(context)

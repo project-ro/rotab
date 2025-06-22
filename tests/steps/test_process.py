@@ -12,13 +12,13 @@ from rotab.ast.util import INDENT
         (
             ProcessNode(
                 name="transaction_enrichment",
-                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="user")],
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
                 steps=[
                     TransformStep(
                         name="step_merge", input_vars=["user"], expr="transform_func(user)", output_vars=["result"]
                     )
                 ],
-                outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema=None)],
+                outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name=None)],
             ),
             [
                 # === Import block ===
@@ -61,7 +61,7 @@ def test_process_node_generate_script(base_context: ValidationContext, node, exp
 def test_process_node_duplicate_var_error(base_context: ValidationContext):
     node = ProcessNode(
         name="duplicate_case",
-        inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema="user")],
+        inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
         steps=[
             TransformStep(
                 name="step_dup",
@@ -82,7 +82,7 @@ def test_process_node_output_undefined_error(base_context: ValidationContext):
         name="undefined_output",
         inputs=[],
         steps=[],
-        outputs=[OutputNode(name="ghost", io_type="csv", path="ghost.csv", schema=None)],
+        outputs=[OutputNode(name="ghost", io_type="csv", path="ghost.csv", schema_name=None)],
     )
 
     with pytest.raises(ValueError, match=r"\[ghost\] Output variable 'ghost' is not defined in scope."):

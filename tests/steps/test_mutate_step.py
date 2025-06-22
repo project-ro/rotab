@@ -3,7 +3,7 @@ import ast
 from typing import List
 from rotab.ast.step_node import MutateStep
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
-from rotab.tests.conftest import INDENT
+from conftest import INDENT
 
 
 def dummy_context():

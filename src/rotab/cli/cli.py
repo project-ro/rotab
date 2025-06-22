@@ -1,5 +1,6 @@
 import argparse
-from rotab.runtime.pipeline import Pipeline
+from rotab.core.pipeline import Pipeline
+from rotab.utils.logger import get_logger, configure_logger
 
 
 def main():
@@ -17,8 +18,15 @@ def main():
     )
     parser.add_argument("--execute", action="store_true", help="Execute the generated code")
     parser.add_argument("--dag", action="store_true", help="Generate a DAG (Mermaid format)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
+    # Configure logger based on --debug flag
+    configure_logger(level="DEBUG" if args.debug else "INFO")
+    logger = get_logger()
+    logger.info("ROTAB CLI started.")
+
+    # Show configuration
     print("=== ROTAB Pipeline Configuration ===")
     print(f"Template directory      : {args.template_dir}")
     print(f"Parameter directory     : {args.param_dir or '(none)'}")
@@ -38,16 +46,14 @@ def main():
         transform_func_path=args.transform_func_path,
     )
 
-    if args.dag:
-        print("→ Generating Mermaid DAG...")
-        pipeline.generate_dag(source_dir=args.source_dir)
-
-    print("→ Generating code" + (" and executing..." if args.execute else " only..."))
     pipeline.run(
         execute=args.execute,
         dag=args.dag,
     )
 
-    print("\nPipeline completed successfully.")
-    if not args.execute:
-        print(f"To run the generated code manually:\n   python {args.source_dir}/main.py")
+    if args.execute:
+        logger.info("Pipeline run completed successfully.")
+    else:
+        logger.info("Code generation completed successfully.")
+        print("\nTo run the generated code manually:")
+        print(f"   python {args.source_dir}/main.py")

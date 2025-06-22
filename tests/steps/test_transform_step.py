@@ -3,7 +3,7 @@ import ast
 import textwrap
 from rotab.ast.step_node import TransformStep
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
-from rotab.tests.conftest import INDENT
+from conftest import INDENT
 
 
 @pytest.mark.parametrize(
