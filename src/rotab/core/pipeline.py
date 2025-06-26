@@ -1,6 +1,7 @@
 import os
 import subprocess
 import shutil
+import glob
 from copy import deepcopy
 from typing import Optional
 
@@ -88,23 +89,34 @@ class Pipeline:
                     orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
                     output_paths.add(orig_abs)
 
+        # 入力ファイルコピー
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
-                    orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
-                    fname = os.path.basename(node.path)
-                    dst_path = os.path.join(input_dir, fname)
+                    if "*" in node.path:
+                        pattern = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                        for matched_file in glob.glob(pattern):
+                            fname = os.path.basename(matched_file)
+                            dst_path = os.path.join(input_dir, fname)
+                            shutil.copyfile(matched_file, dst_path)
+                    else:
+                        orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                        fname = os.path.basename(node.path)
+                        dst_path = os.path.join(input_dir, fname)
 
-                    if orig_abs not in output_paths:
-                        shutil.copyfile(orig_abs, dst_path)
+                        if orig_abs not in output_paths:
+                            shutil.copyfile(orig_abs, dst_path)
 
+        # パスの書き換え
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
                     fname = os.path.basename(node.path)
                     original_path = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
 
-                    if original_path in output_paths:
+                    if "*" in node.path:
+                        new_path = os.path.relpath(os.path.join(input_dir, fname), source_dir)
+                    elif original_path in output_paths:
                         new_path = os.path.relpath(os.path.join(output_dir, fname), source_dir)
                     else:
                         new_path = os.path.relpath(os.path.join(input_dir, fname), source_dir)

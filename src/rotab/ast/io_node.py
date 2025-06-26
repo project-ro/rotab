@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+import os
+import re
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from typing import Optional, List, Literal
@@ -24,6 +25,7 @@ class IOBaseNode(Node):
 
 class InputNode(IOBaseNode):
     type: Literal["input"] = "input"
+    wildcard_column: Optional[str] = None
 
     def validate(self, context: ValidationContext) -> None:
         if self.io_type != "csv":
@@ -44,9 +46,34 @@ class InputNode(IOBaseNode):
         if not isinstance(var_info, VariableInfo):
             raise ValueError(f"[{self.name}] VariableInfo not found for input.")
 
-        if var_info.columns:
-            return [f'{self.name} = pd.read_csv("{self.path}", dtype={repr(var_info.columns)})']
-        return [f'{self.name} = pd.read_csv("{self.path}")']
+        dtype_arg = f", dtype={repr(var_info.columns)}" if var_info.columns else ""
+
+        if "*" in self.path:
+            if not self.wildcard_column:
+                raise ValueError(f"[{self.name}] 'wildcard_column' must be specified for wildcard path.")
+
+            # globパターンを正規表現に変換
+            basename_pattern = os.path.basename(self.path)
+            regex_pattern = re.escape(basename_pattern).replace("\\*", "(.+)")
+
+            return [
+                "import glob, os, re",
+                f"{self.name}_files = glob.glob('{self.path}')",
+                f"{self.name}_df_list = []",
+                f"_regex = re.compile(r'{regex_pattern}')",
+                f"for _file in {self.name}_files:",
+                f"    _basename = os.path.basename(_file)",
+                f"    _match = _regex.match(_basename)",
+                f"    if not _match: raise ValueError(f'Unexpected filename: {{_basename}}')",
+                f"    _val = _match.group(1)",
+                f"    _df = pd.read_csv(_file{dtype_arg})",
+                f"    _df['{self.wildcard_column}'] = _val",
+                f"    _df['{self.wildcard_column}'] = _df['{self.wildcard_column}'].astype(str)",
+                f"    {self.name}_df_list.append(_df)",
+                f"{self.name} = pd.concat({self.name}_df_list, ignore_index=True)",
+            ]
+        else:
+            return [f'{self.name} = pd.read_csv("{self.path}"{dtype_arg})']
 
     def get_outputs(self) -> List[str]:
         return [self.name]
