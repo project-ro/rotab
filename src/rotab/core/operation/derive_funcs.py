@@ -1,128 +1,109 @@
-import math
-import datetime
-import builtins
-from typing import Any, Union
+import polars as pl
 
 
-def log(x: float, base: float = 10) -> float:
-    return math.log(x, base)
+def log(col: str, base: float = 10) -> pl.Expr:
+    return pl.col(col).log(base)
 
 
-def log1p(x: float) -> float:
-    return math.log1p(x)
+def log1p(col: str) -> pl.Expr:
+    return pl.col(col).log1p().cast(pl.Float64)
 
 
-def exp(x: float) -> float:
-    return math.exp(x)
+def exp(col: str) -> pl.Expr:
+    return pl.col(col).exp()
 
 
-def sqrt(x: float) -> float:
-    return math.sqrt(x)
+def sqrt(col: str) -> pl.Expr:
+    return pl.col(col).sqrt()
 
 
-def clip(x: float, min_val: float, max_val: float) -> float:
-    return builtins.max(min_val, builtins.min(x, max_val))
+def clip(col: str, min_val: float, max_val: float) -> pl.Expr:
+    return pl.col(col).clip(min_val, max_val)
 
 
-def round(x: float, ndigits: int = 0) -> float:
-    return builtins.round(x, ndigits)
+def round(col: str, decimals: int = 0) -> pl.Expr:
+    return pl.col(col).round(decimals)
 
 
-def floor(x: float) -> float:
-    return math.floor(x)
+def floor(col: str) -> pl.Expr:
+    return pl.col(col).floor()
 
 
-def ceil(x: float) -> float:
-    return math.ceil(x)
+def ceil(col: str) -> pl.Expr:
+    return pl.col(col).ceil()
 
 
-def abs(x: float) -> float:
-    return builtins.abs(x)
+def abs(col: str) -> pl.Expr:
+    return pl.col(col).abs()
 
 
-def len(x: Any) -> int:
-    return builtins.len(x)
+def startswith(col: str, prefix: str) -> pl.Expr:
+    return pl.col(col).str.starts_with(prefix)
 
 
-def startswith(x: str, prefix: str) -> bool:
-    return x.startswith(prefix)
+def endswith(col: str, suffix: str) -> pl.Expr:
+    return pl.col(col).str.ends_with(suffix)
 
 
-def endswith(x: str, suffix: str) -> bool:
-    return x.endswith(suffix)
+def lower(col: str) -> pl.Expr:
+    return pl.col(col).str.to_lowercase()
 
 
-def lower(x: str) -> str:
-    return x.lower()
+def upper(col: str) -> pl.Expr:
+    return pl.col(col).str.to_uppercase()
 
 
-def upper(x: str) -> str:
-    return x.upper()
+def replace_values(col: str, old: str, new: str) -> pl.Expr:
+    return pl.col(col).str.replace(old, new)
 
 
-def replace_values(x: str, old: str, new: str) -> str:
-    return x.replace(old, new)
+def strip(col: str) -> pl.Expr:
+    return pl.col(col).str.strip_chars()
 
 
-def format_datetime(x: Union[datetime.datetime, str], format: str) -> str:
-    if isinstance(x, str):
-        x = datetime.datetime.fromisoformat(x)
-    return x.strftime(format)
+def format_datetime(col: str, fmt: str) -> pl.Expr:
+    return pl.col(col).dt.strftime(fmt)
 
 
-def year(x: Union[datetime.datetime, str]) -> int:
-    if isinstance(x, str):
-        x = datetime.datetime.fromisoformat(x)
-    return x.year
+def year(col: str) -> pl.Expr:
+    return pl.col(col).dt.year()
 
 
-def month(x: Union[datetime.datetime, str]) -> int:
-    if isinstance(x, str):
-        x = datetime.datetime.fromisoformat(x)
-    return x.month
+def month(col: str) -> pl.Expr:
+    return pl.col(col).dt.month()
 
 
-def day(x: Union[datetime.datetime, str]) -> int:
-    if isinstance(x, str):
-        x = datetime.datetime.fromisoformat(x)
-    return x.day
+def day(col: str) -> pl.Expr:
+    return pl.col(col).dt.day()
 
 
-def weekday(x: Union[datetime.datetime, str]) -> int:
-    if isinstance(x, str):
-        x = datetime.datetime.fromisoformat(x)
-    return x.weekday()
+def hour(col: str) -> pl.Expr:
+    return pl.col(col).dt.hour()
 
 
-def hour(x: Union[datetime.datetime, str]) -> int:
-    if isinstance(x, str):
-        x = datetime.datetime.fromisoformat(x)
-    return x.hour
+def weekday(col: str) -> pl.Expr:
+    return pl.col(col).dt.weekday()
 
 
-def days_between(x1: Union[datetime.datetime, str], x2: Union[datetime.datetime, str]) -> int:
-    if isinstance(x1, str):
-        x1 = datetime.datetime.fromisoformat(x1)
-    if isinstance(x2, str):
-        x2 = datetime.datetime.fromisoformat(x2)
-    return builtins.abs((x2 - x1).days)
+def days_between(col1: str, col2: str) -> pl.Expr:
+    return (pl.col(col2).cast(pl.Datetime) - pl.col(col1).cast(pl.Datetime)).dt.total_days()
 
 
-def is_null(x: Any) -> bool:
-    return x is None or (isinstance(x, float) and math.isnan(x))
+def is_null(col: str) -> pl.Expr:
+    return pl.col(col).is_null()
 
 
-def strip(x: str) -> str:
-    return x.strip()
+def not_null(col: str) -> pl.Expr:
+    return pl.col(col).is_not_null()
 
 
-def not_null(x: Any) -> bool:
-    return not is_null(x)
+def min(col1: str, col2: str) -> pl.Expr:
+    return pl.min_horizontal([pl.col(col1), pl.col(col2)])
 
 
-def min(x1: float, x2: float) -> float:
-    return builtins.min(x1, x2)
+def max(col1: str, col2: str) -> pl.Expr:
+    return pl.max_horizontal([pl.col(col1), pl.col(col2)])
 
 
-def max(x1: float, x2: float) -> float:
-    return builtins.max(x1, x2)
+def len(col: str) -> pl.Expr:
+    return pl.col(col).str.len_chars()
