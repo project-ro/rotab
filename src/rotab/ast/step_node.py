@@ -140,22 +140,29 @@ class MutateStep(StepNode):
         except Exception as e:
             raise ValueError(f"[{self.name}] Failed to transform RHS '{rhs}': {e}")
 
-    def generate_script(self, context: ValidationContext = None) -> List[str]:
+    def generate_script(self, backend: str = "pandas", context: ValidationContext = None) -> List[str]:
+        if backend == "pandas":
+            return self.generate_script_pandas(context)
+        elif backend == "polars":
+            return self.generate_script_polars(context)
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
+
+    def generate_script_pandas(self, context: ValidationContext = None) -> List[str]:
         var = self.input_vars[0]
         var_result = self.output_vars[0] if self.output_vars else var
         lines = [f"{var_result} = {var}.copy()"]
+
         for op in self.operations:
             for key, value in op.items():
                 if key == "filter":
                     lines.append(f"{var_result} = {var_result}.query('{value}').copy()")
 
                 elif key == "derive":
-                    if not isinstance(value, str):
-                        raise ValueError(f"[{self.name}] derive must be a string.")
                     for line in value.split("\n"):
                         line = line.strip()
                         if not line:
-                            continue  # skip empty lines
+                            continue
                         parts = line.split("=", 1)
                         if len(parts) != 2:
                             raise ValueError(f"[{self.name}] Invalid assignment expression: `{line}`")
@@ -168,7 +175,37 @@ class MutateStep(StepNode):
                 elif key == "select":
                     cols = ", ".join([f'"{col}"' for col in value])
                     lines.append(f"{var_result} = {var_result}[[{cols}]]")
+
         return [f"if {self.when}:", *[textwrap.indent(line, INDENT) for line in lines]] if self.when else lines
+
+    def generate_script_polars(self, context: ValidationContext = None) -> List[str]:
+        var = self.input_vars[0]
+        var_result = self.output_vars[0] if self.output_vars else var
+        lines = [f"{var_result} = {var}"]
+
+        for op in self.operations:
+            for key, value in op.items():
+                # 改行含む場合
+                if "\n" in value:
+                    # 過剰インデントを削除し、単一の INDENT で統一
+                    indented_body = textwrap.indent(value.strip(), INDENT)
+                    formatted_value = f'"""\n{indented_body}\n{INDENT}"""'
+                else:
+                    formatted_value = repr(value)
+
+                if key == "filter":
+                    lines.append(f"{var_result} = {var_result}.filter(expr({formatted_value}))")
+
+                elif key == "derive":
+                    lines.append(f"{var_result} = {var_result}.with_columns(expr({formatted_value}))")
+
+                elif key == "select":
+                    # select は expr() 不要なので修正 (ついでに正しく直す)
+                    cols_str = ", ".join([f"'{col}'" for col in value])
+                    lines.append(f"{var_result} = {var_result}.select([{cols_str}])")
+
+        final_lines = [f"if {self.when}:", *[textwrap.indent(line, INDENT) for line in lines]] if self.when else lines
+        return final_lines
 
 
 class TransformStep(StepNode):

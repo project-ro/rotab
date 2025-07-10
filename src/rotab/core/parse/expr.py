@@ -114,110 +114,118 @@ def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
     return exprs
 
 
-def test_parse_derive_expr():
-    df = pl.DataFrame(
-        {
-            "age": [15, 20, 25],
-            "income": [3000, 4000, 5000],
-            "bonus": [1000, 1500, 2000],
-            "name": ["Alice", "Bob", "Charlie"],
-        }
-    )
-
-    derive_str = """
-    add_col = age + bonus
-    sub_col = income - bonus
-    mul_col = age * 2
-    div_col = income / age
-    floordiv_col = income // age
-    mod_col = income % age
-    gt_col = income > 3500
-    gte_col = income >= 4000
-    lt_col = age < 25
-    lte_col = age <= 20
-    eq_col = age == 20
-    neq_col = age != 15
-    and_col = (income > 3000) & (age < 25)
-    or_col = (income < 3500) | (age >= 25)
-    not_col = not (age < 20)
-    complex_score = (log(age) + clip(income, 3000, 5000) / 2) * sqrt(bonus) - abs(age - bonus)
-    name_upper = upper(name)
+def parse_filter_expr(expr_str: str) -> pl.Expr:
     """
+    ユーザーからの文字列条件式を pl.Expr に変換する関数
+    例: "age > 18 and income < 5000" → pl.col("age") > 18 & pl.col("income") < 5000
+    """
+    tree = ast.parse(expr_str, mode="eval")
 
-    exprs = parse_derive_expr(derive_str)
-    df2 = df.with_columns(exprs)
+    def _convert(node):
+        if isinstance(node, ast.BoolOp):
+            ops = [_convert(v) for v in node.values]
+            if isinstance(node.op, ast.And):
+                expr = ops[0]
+                for op in ops[1:]:
+                    expr = expr & op
+                return expr
+            elif isinstance(node.op, ast.Or):
+                expr = ops[0]
+                for op in ops[1:]:
+                    expr = expr | op
+                return expr
+            else:
+                raise ValueError("Unsupported boolean operator")
 
-    import math
+        elif isinstance(node, ast.Compare):
+            left = _convert(node.left)
+            right = _convert(node.comparators[0])
+            op = node.ops[0]
 
-    # add_col
-    expected_add = [a + b for a, b in zip(df["age"], df["bonus"])]
-    assert df2["add_col"].to_list() == expected_add
+            if isinstance(op, ast.Eq):
+                return left == right
+            elif isinstance(op, ast.NotEq):
+                return left != right
+            elif isinstance(op, ast.Gt):
+                return left > right
+            elif isinstance(op, ast.GtE):
+                return left >= right
+            elif isinstance(op, ast.Lt):
+                return left < right
+            elif isinstance(op, ast.LtE):
+                return left <= right
+            elif isinstance(op, ast.In):
+                return left.is_in(right)
+            elif isinstance(op, ast.NotIn):
+                return ~left.is_in(right)
+            elif isinstance(op, ast.Is):
+                if right is None:
+                    return left.is_null()
+                else:
+                    raise ValueError("Unsupported 'is' comparison with non-None")
+            elif isinstance(op, ast.IsNot):
+                if right is None:
+                    return left.is_not_null()
+                else:
+                    raise ValueError("Unsupported 'is not' comparison with non-None")
+            else:
+                raise ValueError("Unsupported comparison operator")
 
-    # sub_col
-    expected_sub = [i - b for i, b in zip(df["income"], df["bonus"])]
-    assert df2["sub_col"].to_list() == expected_sub
+        elif isinstance(node, ast.Name):
+            return pl.col(node.id)
 
-    # mul_col
-    expected_mul = [a * 2 for a in df["age"]]
-    assert df2["mul_col"].to_list() == expected_mul
+        elif isinstance(node, ast.Constant):
+            return node.value
 
-    # div_col
-    expected_div = [i / a for i, a in zip(df["income"], df["age"])]
-    assert all(abs(a - b) < 1e-6 for a, b in zip(df2["div_col"], expected_div))
+        elif isinstance(node, ast.List):
+            return [_convert(elt) for elt in node.elts]
 
-    # floordiv_col
-    expected_fdiv = [i // a for i, a in zip(df["income"], df["age"])]
-    assert df2["floordiv_col"].to_list() == expected_fdiv
+        elif isinstance(node, ast.Tuple):
+            return tuple(_convert(elt) for elt in node.elts)
 
-    # mod_col
-    expected_mod = [i % a for i, a in zip(df["income"], df["age"])]
-    assert df2["mod_col"].to_list() == expected_mod
+        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return ~_convert(node.operand)
 
-    # gt_col
-    expected_gt = [i > 3500 for i in df["income"]]
-    assert df2["gt_col"].to_list() == expected_gt
+        else:
+            raise ValueError(f"Unsupported node: {ast.dump(node)}")
 
-    # gte_col
-    expected_gte = [i >= 4000 for i in df["income"]]
-    assert df2["gte_col"].to_list() == expected_gte
+    return _convert(tree.body)
 
-    # lt_col
-    expected_lt = [a < 25 for a in df["age"]]
-    assert df2["lt_col"].to_list() == expected_lt
 
-    # lte_col
-    expected_lte = [a <= 20 for a in df["age"]]
-    assert df2["lte_col"].to_list() == expected_lte
+def expr(value):
+    """
+    ユーザー記述の文字列やリストから Polars 式に変換する関数。
+    戻り値:
+        - derive: list[pl.Expr]
+        - filter: pl.Expr
+        - select: list[str]
+    """
+    if isinstance(value, list):
+        if all(isinstance(v, str) for v in value):
+            return value
+        else:
+            raise ValueError(f"List elements must be strings for select mode: {value}")
 
-    # eq_col
-    expected_eq = [a == 20 for a in df["age"]]
-    assert df2["eq_col"].to_list() == expected_eq
+    if isinstance(value, str):
+        v = value.strip()
 
-    # neq_col
-    expected_neq = [a != 15 for a in df["age"]]
-    assert df2["neq_col"].to_list() == expected_neq
+        # derive 優先でまず試す
+        if "=" in v:
+            try:
+                return parse_derive_expr(v)
+            except ValueError:
+                # 無視して filter 判定へ
+                pass
 
-    # and_col
-    expected_and = [(i > 3000) and (a < 25) for i, a in zip(df["income"], df["age"])]
-    assert df2["and_col"].to_list() == expected_and
+        # filter 判定: AST 構造的に評価可能か検証
+        try:
+            tree = ast.parse(v, mode="eval")
+        except SyntaxError as e:
+            raise ValueError(f"Invalid syntax in filter expression: {v}") from e
 
-    # or_col
-    expected_or = [(i < 3500) or (a >= 25) for i, a in zip(df["income"], df["age"])]
-    assert df2["or_col"].to_list() == expected_or
+        if isinstance(tree.body, (ast.Compare, ast.BoolOp, ast.BinOp, ast.UnaryOp, ast.Call, ast.Name)):
+            return parse_filter_expr(v)
+        else:
+            raise ValueError(f"Unsupported expression type for filter: {ast.dump(tree.body)}")
 
-    # not_col
-    expected_not = [not (a < 20) for a in df["age"]]
-    assert df2["not_col"].to_list() == expected_not
-
-    # complex_score
-    expected_score = []
-    for a, i, b in zip(df["age"], df["income"], df["bonus"]):
-        v = (math.log(a, 10) + min(max(i, 3000), 5000) / 2) * math.sqrt(b) - abs(a - b)
-        expected_score.append(v)
-    assert all(abs(a - b) < 1e-6 for a, b in zip(df2["complex_score"], expected_score))
-
-    # name_upper
-    expected_upper = [x.upper() for x in df["name"]]
-    assert df2["name_upper"].to_list() == expected_upper
-
-    print("All extended derive expression tests passed (full operators).")
+    raise ValueError(f"Unsupported expression format for expr(): {value}")
