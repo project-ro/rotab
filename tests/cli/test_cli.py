@@ -80,14 +80,17 @@ def create_dummy_project(base_dir):
 
 
 @pytest.mark.parametrize(
-    "execute,dag",
+    "execute,dag,backend",
     [
-        (False, False),
-        (True, False),
-        (True, True),
+        (False, False, "pandas"),
+        (True, False, "pandas"),
+        (True, True, "pandas"),
+        (False, False, "polars"),
+        (True, False, "polars"),
+        (True, True, "polars"),
     ],
 )
-def test_cli_main_variants(execute, dag):
+def test_cli_main_variants(execute, dag, backend):
     tmpdir = tempfile.mkdtemp()
     try:
         template_dir, param_dir, schema_dir = create_dummy_project(tmpdir)
@@ -107,6 +110,8 @@ def test_cli_main_variants(execute, dag):
                 os.path.relpath(schema_dir, source_dir),
                 "--source-dir",
                 ".",
+                "--backend",
+                backend,
             ]
             if execute:
                 argv.append("--execute")
@@ -132,7 +137,11 @@ def test_cli_main_variants(execute, dag):
 
                 df = pd.read_csv(out_path)
                 assert "yyyymm" in df.columns, "yyyymm column should exist in output"
-                assert set(df["yyyymm"]) == {202401, 202402}, "yyyymm values should match wildcard files"
+
+                # polars backend でも出力は csv で統一されるので値を検証
+                expected_vals = {"202401", "202402"}
+                df_yyyymm = set(df["yyyymm"].astype(str))
+                assert df_yyyymm == expected_vals, f"yyyymm values should match wildcard files: {df_yyyymm}"
                 assert df.shape[0] == 4, "Unexpected number of rows in output"
 
         finally:

@@ -29,7 +29,7 @@ class Node(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def generate_script(self, context: Any = None) -> Any:
+    def generate_script(self, backend: str = "pandas", context: Any = None) -> Any:
         pass
 
     def get_children(self) -> List["Node"]:

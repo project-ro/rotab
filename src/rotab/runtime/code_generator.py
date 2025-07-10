@@ -4,10 +4,13 @@ from rotab.ast.template_node import TemplateNode
 from rotab.ast.context.validation_context import ValidationContext
 from rotab.runtime.dag_generator import DagGenerator
 
+BACKEND = "pandas"  # or "polars", depending on your use case
+
 
 class CodeGenerator:
-    def __init__(self, templates: List[TemplateNode], context: ValidationContext):
+    def __init__(self, templates: List[TemplateNode], backend: str, context: ValidationContext):
         self.templates = templates
+        self.backend = backend
         self.context = context
         self.dag = DagGenerator(templates)
 
@@ -56,7 +59,7 @@ class CodeGenerator:
         """
         result = {}
         for template in self._resolve_template_order():
-            result[template.name] = template.generate_script(self.context)
+            result[template.name] = template.generate_script(self.backend, self.context)
         return result
 
     def write_all(self, source_dir: str) -> None:
@@ -70,7 +73,7 @@ class CodeGenerator:
             template_dir = os.path.join(source_dir, template.name)
             os.makedirs(template_dir, exist_ok=True)
 
-            script_map = template.generate_script(self.context)
+            script_map = template.generate_script(self.backend, self.context)
 
             for process_name, lines in script_map.items():
                 path = os.path.join(template_dir, f"{process_name}.py")

@@ -1,6 +1,6 @@
 import polars as pl
 import ast
-from rotab.core.parse.expr import parse_derive_expr
+from rotab.core.parse.parse import parse_derive_expr
 
 
 def test_parse_derive_expr():

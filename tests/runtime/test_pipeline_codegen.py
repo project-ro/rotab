@@ -3,6 +3,7 @@ import tempfile
 import textwrap
 import yaml
 import subprocess
+import pytest
 from typing import Tuple
 
 from rotab.core.pipeline import Pipeline
@@ -16,7 +17,7 @@ def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:
     os.makedirs(param_dir)
     os.makedirs(schema_dir)
 
-    # テンプレート定義（input.csv は template_dir 直下にある前提）
+    # テンプレート定義
     template = {
         "name": "test_template",
         "processes": [
@@ -35,7 +36,7 @@ def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:
     with open(os.path.join(template_dir, "template.yaml"), "w") as f:
         yaml.dump(template, f)
 
-    # 入力CSV（template_dir/input.csv に配置）
+    # 入力CSV
     with open(os.path.join(template_dir, "input.csv"), "w") as f:
         f.write("value\n1\n-1\n2\n")
 
@@ -49,7 +50,7 @@ def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:
     with open(os.path.join(schema_dir, "output_df.yaml"), "w") as f:
         yaml.dump({"columns": {"value": "int"}}, f)
 
-    # 関数定義（ダミー）
+    # 関数定義
     derive_path = os.path.join(tmpdir, "derive_funcs.py")
     transform_path = os.path.join(tmpdir, "transform_funcs.py")
     with open(derive_path, "w") as f:
@@ -60,12 +61,13 @@ def setup_test_environment(tmpdir: str) -> Tuple[str, str, str, str, str]:
     return template_dir, param_dir, schema_dir, derive_path, transform_path
 
 
-def test_pipeline_codegen_outputs():
+@pytest.mark.parametrize("backend", ["pandas", "polars"])
+def test_pipeline_codegen_outputs(backend):
     with tempfile.TemporaryDirectory() as tmpdir:
         template_dir, param_dir, schema_dir, derive_path, transform_path = setup_test_environment(tmpdir)
         source_dir = os.path.join(tmpdir, "out")
 
-        # Pipeline実行（コード生成のみ）
+        # Pipeline 実行（コード生成のみ）
         pipeline = Pipeline.from_setting(
             template_dir=template_dir,
             source_dir=source_dir,
@@ -73,6 +75,7 @@ def test_pipeline_codegen_outputs():
             schema_dir=schema_dir,
             derive_func_path=derive_path,
             transform_func_path=transform_path,
+            backend=backend,
         )
         pipeline.run(execute=False, dag=False)
 
@@ -80,7 +83,7 @@ def test_pipeline_codegen_outputs():
         main_path = os.path.join(source_dir, "main.py")
         assert os.path.isfile(main_path), "main.py not found in source directory"
 
-        # プロセスコードファイルの確認（テンプレート名サブディレクトリ内）
+        # プロセスコードファイルの確認
         template_name = "test_template"
         process_file = "test_process.py"
         process_path = os.path.join(source_dir, template_name, process_file)

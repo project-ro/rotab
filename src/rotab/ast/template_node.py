@@ -18,7 +18,7 @@ class TemplateNode(Node):
     def get_children(self) -> List[Node]:
         return self.processes
 
-    def generate_script(self, context: ValidationContext) -> dict:
+    def generate_script(self, backend: str, context: ValidationContext) -> dict:
         """
         Returns a dict mapping process name to its script lines.
         Example:
@@ -30,7 +30,7 @@ class TemplateNode(Node):
         script_map = {}
 
         for process in self.processes:
-            script_map[process.name] = process.generate_script(context)
+            script_map[process.name] = process.generate_script(backend, context)
 
         return script_map
 

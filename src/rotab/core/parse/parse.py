@@ -4,6 +4,9 @@ from rotab.core.operation.derive_funcs import FUNC_NAMESPACE
 
 
 def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
+
+    print("parse_derive_expr: 入力文字列 repr:", derive_str)
+
     exprs = []
     lines = [line.strip() for line in derive_str.strip().splitlines() if line.strip()]
 
@@ -192,39 +195,40 @@ def parse_filter_expr(expr_str: str) -> pl.Expr:
     return _convert(tree.body)
 
 
-def expr(value):
-    """
-    ユーザー記述の文字列やリストから Polars 式に変換する関数。
-    戻り値:
-        - derive: list[pl.Expr]
-        - filter: pl.Expr
-        - select: list[str]
-    """
+def parse(value):
     if isinstance(value, list):
         if all(isinstance(v, str) for v in value):
+            print("parse: select 判定 (list of str)")
             return value
         else:
             raise ValueError(f"List elements must be strings for select mode: {value}")
 
     if isinstance(value, str):
         v = value.strip()
+        print("parse: 入力文字列 repr:", repr(v))
 
-        # derive 優先でまず試す
         if "=" in v:
             try:
-                return parse_derive_expr(v)
-            except ValueError:
-                # 無視して filter 判定へ
+                print("parse: derive 判定へ進む")
+                res = parse_derive_expr(v)
+                print("parse: derive 成功", res)
+                return res
+            except ValueError as e:
+                print("parse: derive 失敗", e)
                 pass
 
-        # filter 判定: AST 構造的に評価可能か検証
         try:
+            print("parse: filter 判定へ進む")
             tree = ast.parse(v, mode="eval")
         except SyntaxError as e:
+            print("parse: filter SyntaxError", e)
             raise ValueError(f"Invalid syntax in filter expression: {v}") from e
 
+        print("parse: filter AST body type:", type(tree.body))
         if isinstance(tree.body, (ast.Compare, ast.BoolOp, ast.BinOp, ast.UnaryOp, ast.Call, ast.Name)):
-            return parse_filter_expr(v)
+            res = parse_filter_expr(v)
+            print("parse: filter 成功", res)
+            return res
         else:
             raise ValueError(f"Unsupported expression type for filter: {ast.dump(tree.body)}")
 

@@ -194,13 +194,12 @@ class MutateStep(StepNode):
                     formatted_value = repr(value)
 
                 if key == "filter":
-                    lines.append(f"{var_result} = {var_result}.filter(expr({formatted_value}))")
+                    lines.append(f"{var_result} = {var_result}.filter(parse({formatted_value}))")
 
                 elif key == "derive":
-                    lines.append(f"{var_result} = {var_result}.with_columns(expr({formatted_value}))")
+                    lines.append(f"{var_result} = {var_result}.with_columns(parse({formatted_value}))")
 
                 elif key == "select":
-                    # select は expr() 不要なので修正 (ついでに正しく直す)
                     cols_str = ", ".join([f"'{col}'" for col in value])
                     lines.append(f"{var_result} = {var_result}.select([{cols_str}])")
 
@@ -246,6 +245,6 @@ class TransformStep(StepNode):
             if out not in schemas:
                 schemas[out] = VariableInfo(type="dataframe", columns={})
 
-    def generate_script(self, context: ValidationContext = None) -> List[str]:
+    def generate_script(self, backend, context: ValidationContext = None) -> List[str]:
         line = f"{self.output_vars[0]} = {self.expr}"  # 修正④: 最初の出力に代入
         return [f"if {self.when}:", textwrap.indent(line, INDENT)] if self.when else [line]

@@ -25,8 +25,8 @@ def test_generate_script_polars_basic():
     expected = [
         "if flag:",
         "    df_result = df",
-        "    df_result = df_result.filter(expr('age > 18 and income < 5000'))",
-        '    df_result = df_result.with_columns(expr("""\n'
+        "    df_result = df_result.filter(parse('age > 18 and income < 5000'))",
+        '    df_result = df_result.with_columns(parse("""\n'
         "        new_col = a + b\n"
         "        score = a / b\n"
         '        """))',
@@ -63,7 +63,7 @@ def test_generate_script_polars_without_when():
 
     expected = [
         "df_result = df",
-        "df_result = df_result.filter(expr('flag == True'))",
+        "df_result = df_result.filter(parse('flag == True'))",
     ]
 
     assert lines == expected

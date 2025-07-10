@@ -18,7 +18,7 @@ from rotab.core.operation.transform_funcs_pandas import (
 
 def test_validate_table_schema_pass():
     df = pd.DataFrame({"a": [1], "b": ["x"]})
-    columns = [{"name": "a", "dtype": "Int64"}, {"name": "b", "dtype": "str"}]
+    columns = [{"name": "a", "dtype": "int64"}, {"name": "b", "dtype": "str"}]
     assert validate_table_schema(df, columns)
 
 

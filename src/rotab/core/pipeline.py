@@ -16,9 +16,10 @@ logger = get_logger()
 
 
 class Pipeline:
-    def __init__(self, template_dir, templates, context, source_dir=".generated"):
+    def __init__(self, template_dir, templates, backend, context, source_dir=".generated"):
         self.template_dir = template_dir
         self.templates = templates
+        self.backend = backend
         self.context = context
         self.source_dir = source_dir
 
@@ -61,6 +62,7 @@ class Pipeline:
         schema_dir: str,
         derive_func_path: Optional[str] = None,
         transform_func_path: Optional[str] = None,
+        backend: str = "pandas",
     ):
         cls._clean_source_dir(source_dir)
         schema_manager = SchemaManager(schema_dir)
@@ -74,7 +76,7 @@ class Pipeline:
         )
         context = context_builder.build(templates)
 
-        return cls(template_dir, templates, context, source_dir)
+        return cls(template_dir, templates, backend, context, source_dir)
 
     def rewrite_template_paths_and_copy_data(self, source_dir: str, template_dir: str):
         input_dir = os.path.join(source_dir, "data", "inputs")
@@ -142,7 +144,7 @@ class Pipeline:
             template.validate(validate_context)
 
     def generate_code(self, source_dir: str) -> None:
-        codegen = CodeGenerator(self.templates, self.context)
+        codegen = CodeGenerator(self.templates, self.backend, self.context)
         codegen.write_all(source_dir)
         logger.info(f"Code generated at: {source_dir}")
 

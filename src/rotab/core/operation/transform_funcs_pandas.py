@@ -3,6 +3,9 @@ from typing import List, Dict, Any
 
 
 def normalize_dtype(dtype: str) -> str:
+    """
+    user_specified dtype to pandas/polars dtype mapping.
+    """
     mapping = {
         "int": "int64",
         "float": "float64",

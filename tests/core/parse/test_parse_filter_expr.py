@@ -1,5 +1,5 @@
 import polars as pl
-from rotab.core.parse.expr import parse_filter_expr
+from rotab.core.parse.parse import parse_filter_expr
 
 
 def test_parse_filter_expr():

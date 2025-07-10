@@ -53,15 +53,25 @@ class ProcessNode(Node):
             if out.name not in defined_vars:
                 raise ValueError(f"[{self.name}] Output variable '{out.name}' is not defined in steps or inputs.")
 
-    def generate_script(self, context: ValidationContext) -> List[str]:
+    def generate_script(self, backend: str, context: ValidationContext) -> List[str]:
+        if backend not in {"pandas", "polars"}:
+            raise ValueError(f"Unsupported backend: {backend}")
 
         # === Import section ===
-        imports = [
-            "import os",
-            "import pandas as pd",
-            "from rotab.core.operation.derive_funcs import *",
-            "from rotab.core.operation.transform_funcs import *",
-        ]
+        imports = ["import os"]
+
+        if backend == "pandas":
+            imports.append("import pandas as pd")
+        elif backend == "polars":
+            imports.append("import polars as pl")
+            imports.append("from rotab.core.parse.parse import parse")
+
+        imports.extend(
+            [
+                "from rotab.core.operation.derive_funcs import *",
+                "from rotab.core.operation.transform_funcs import *",
+            ]
+        )
 
         if context.derive_func_path is not None:
             imports.append("from custom_functions.derive_funcs import *")
@@ -70,25 +80,13 @@ class ProcessNode(Node):
 
         imports.extend(["", ""])
 
-        # # === Import section ===
-        # imports = [
-        #     "import os",
-        #     "import pandas as pd",
-        #     "from rotab.core.operation.derive_funcs import *",
-        #     "from rotab.core.operation.transform_funcs import *",
-        #     "from custom_functions.derive_funcs import *",
-        #     "from custom_functions.transform_funcs import *",
-        #     "",
-        #     "",
-        # ]
-
         # === Step functions ===
         step_funcs: List[str] = []
         for step in self.steps:
             func_name = f"step_{step.name}_{self.name}"
             args = ", ".join(step.input_vars)
             func_lines = [f"def {func_name}({args}):"]
-            inner = step.generate_script(context)
+            inner = step.generate_script(backend, context)
 
             return_line = (
                 f"return {step.output_vars[0]}" if len(step.output_vars) == 1 else f"return {tuple(step.output_vars)}"
@@ -109,17 +107,20 @@ class ProcessNode(Node):
         if self.description:
             main_lines.append(textwrap.indent(f'"""{self.description.strip()}"""', INDENT))
 
+        # Input nodes
         for inp in self.inputs:
-            main_lines += [textwrap.indent(line, INDENT) for line in inp.generate_script(context)]
+            main_lines += [textwrap.indent(line, INDENT) for line in inp.generate_script(backend, context)]
 
+        # Steps
         for step in self.steps:
             args = ", ".join(step.input_vars)
             assign_lhs = step.output_vars[0] if len(step.output_vars) == 1 else f"{tuple(step.output_vars)}"
             call_line = f"{assign_lhs} = step_{step.name}_{self.name}({args})"
             main_lines.append(textwrap.indent(call_line, INDENT))
 
+        # Output nodes
         for out in self.outputs:
-            main_lines += [textwrap.indent(line, INDENT) for line in out.generate_script(context)]
+            main_lines += [textwrap.indent(line, INDENT) for line in out.generate_script(backend, context)]
 
         if self.outputs:
             return_vars = (

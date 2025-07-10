@@ -7,9 +7,10 @@ from rotab.ast.util import INDENT
 
 
 @pytest.mark.parametrize(
-    "node, expected_script",
+    "backend, node, expected_script",
     [
         (
+            "pandas",
             ProcessNode(
                 name="transaction_enrichment",
                 inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
@@ -49,12 +50,54 @@ from rotab.ast.util import INDENT
                 "",
             ],
         ),
+        (
+            "polars",
+            ProcessNode(
+                name="transaction_enrichment",
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
+                steps=[
+                    TransformStep(
+                        name="step_merge", input_vars=["user"], expr="transform_func(user)", output_vars=["result"]
+                    )
+                ],
+                outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name=None)],
+            ),
+            [
+                # === Import block ===
+                "import os",
+                "import polars as pl",
+                "from rotab.core.parse.parse import parse",
+                "from rotab.core.operation.derive_funcs import *",
+                "from rotab.core.operation.transform_funcs import *",
+                "",
+                "",
+                # === Step function ===
+                "def step_step_merge_transaction_enrichment(user):",
+                INDENT + "result = transform_func(user)",
+                INDENT + "return result",
+                "",
+                "",
+                # === Main function ===
+                "def transaction_enrichment():",
+                INDENT
+                + 'user = pl.read_csv("user.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})',
+                INDENT + "result = step_step_merge_transaction_enrichment(user)",
+                INDENT + 'result.write_csv("result.csv")',
+                INDENT + "return result",
+                "",
+                "",
+                # === Entry point ===
+                'if __name__ == "__main__":',
+                INDENT + "transaction_enrichment()",
+                "",
+            ],
+        ),
     ],
 )
-def test_process_node_generate_script(base_context: ValidationContext, node, expected_script):
+def test_process_node_generate_script(base_context: ValidationContext, backend, node, expected_script):
     base_context.eval_scope["transform_func"] = lambda df: df
     node.validate(base_context)
-    script = node.generate_script(base_context)
+    script = node.generate_script(backend, base_context)
     assert script == expected_script
 
 
