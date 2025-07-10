@@ -1,215 +1,125 @@
-import pandas as pd
+import polars as pl
 from typing import List, Dict, Any
 
 
-def normalize_dtype(dtype: str) -> str:
+def normalize_dtype(dtype: str):
     mapping = {
-        "int": "int64",
-        "float": "float64",
-        "str": "object",
-        "string": "object",
-        "datetime": "datetime64[ns]",
-        "bool": "bool",
-        "object": "object",
+        "int": pl.Int64,
+        "float": pl.Float64,
+        "str": pl.String,
+        "string": pl.String,
+        "bool": pl.Boolean,
+        "datetime": pl.Datetime,
+        "datetime[ns]": pl.Datetime,
+        "object": pl.String,
     }
     return mapping.get(dtype, dtype)
 
 
-def validate_table_schema(df: pd.DataFrame, columns: List[dict]) -> bool:
-    supported_dtypes = {"int64", "float64", "object", "bool", "datetime64[ns]"}
+def validate_table_schema(df: pl.DataFrame, columns: List[dict]) -> bool:
+    supported_dtypes = {pl.Int64, pl.Float64, pl.String, pl.Boolean, pl.Datetime}
 
-    # 最初に構文チェック（これがないと TypeError になる）
     if not isinstance(columns, list) or not all(isinstance(c, dict) for c in columns):
         raise ValueError("Invalid schema: 'columns' must be a list of dicts")
 
     for col_def in columns:
         col_name = col_def["name"]
-        schema_dtype_raw = col_def["dtype"]
-        expected = normalize_dtype(schema_dtype_raw)
+        expected = normalize_dtype(col_def["dtype"])
 
         if expected not in supported_dtypes:
-            raise ValueError(f"Unsupported type in schema: {schema_dtype_raw} for column: {col_name}")
+            raise ValueError(f"Unsupported type in schema: {col_def['dtype']} for column: {col_name}")
 
         if col_name not in df.columns:
             raise ValueError(f"Missing required column: {col_name}")
 
-        actual = str(df[col_name].dtype)
+        actual = df.schema[col_name]
+
         if actual != expected:
-            raise ValueError(f"Type mismatch for column '{col_name}': expected {expected}, got {actual}")
+            raise ValueError(
+                f"Type mismatch for column '{col_name}': expected {expected.__class__.__name__}, got {actual.__class__.__name__}"
+            )
 
     return True
 
 
-def sort_by(table: pd.DataFrame, column: str, ascending: bool = True) -> pd.DataFrame:
-    """
-    Sort the table by a specific column.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - column (str): Column to sort by.
-    - ascending (bool): Sort order. Default is True (ascending).
-
-    Returns:
-    - pd.DataFrame: Sorted dataframe.
-    """
-    return table.sort_values(by=column, ascending=ascending)
+def sort_by(table: pl.DataFrame, column: str, ascending: bool = True) -> pl.DataFrame:
+    return table.sort(by=column, descending=not ascending)
 
 
-def groupby_agg(table: pd.DataFrame, by: str, aggregations: Dict[str, str]) -> pd.DataFrame:
-    """
-    Group the table by a column and apply aggregation functions.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - by (str): Column to group by.
-    - aggregations (Dict[str, str]): Dictionary mapping column names to aggregation functions.
-
-    Returns:
-    - pd.DataFrame: Aggregated dataframe.
-    """
-    return table.groupby(by).agg(aggregations).reset_index()
+def groupby_agg(table: pl.DataFrame, by: str, aggregations: Dict[str, str]) -> pl.DataFrame:
+    aggs = [getattr(pl.col(col), agg)().alias(col) for col, agg in aggregations.items()]
+    return table.group_by(by).agg(aggs)
 
 
-def drop_duplicates(table: pd.DataFrame, subset: List[str] = None) -> pd.DataFrame:
-    """
-    Remove duplicate rows from the table.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - subset (List[str], optional): Columns to consider for identifying duplicates.
-
-    Returns:
-    - pd.DataFrame: DataFrame without duplicates.
-    """
-    return table.drop_duplicates(subset=subset)
+def drop_duplicates(table: pl.DataFrame, subset: List[str] = None) -> pl.DataFrame:
+    return table.unique(subset=subset)
 
 
-def merge(left: pd.DataFrame, right: pd.DataFrame, on: str, how: str = "inner") -> pd.DataFrame:
-    """
-    Merge two dataframes on a common column.
-
-    Parameters:
-    - left (pd.DataFrame): Left dataframe.
-    - right (pd.DataFrame): Right dataframe.
-    - on (str): Column name to join on.
-    - how (str): Type of join. Options are 'left', 'right', 'outer', 'inner'. Default is 'inner'.
-
-    Returns:
-    - pd.DataFrame: Merged dataframe.
-    """
-    return pd.merge(left, right, on=on, how=how)
+def merge(left: pl.DataFrame, right: pl.DataFrame, on: str, how: str = "inner") -> pl.DataFrame:
+    return left.join(right, on=on, how=how)
 
 
 def reshape(
-    table: pd.DataFrame,
+    table: pl.DataFrame,
     column_to: str = None,
     columns_from: List[str] = None,
     column_value: str = None,
     agg: str = None,
-) -> pd.DataFrame:
-    """
-    Reshape a DataFrame using pivot, pivot_table, or melt depending on parameters.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - column_to (str): For pivot/pivot_table: index or id_vars. For melt: id_vars.
-    - columns_from (List[str]): For pivot/pivot_table: columns. Not used in melt.
-    - column_value (str): For pivot/pivot_table: values. For melt: value_vars.
-    - agg (str): If specified, uses pivot_table with aggregation. If None, uses pivot or melt.
-
-    Returns:
-    - pd.DataFrame: Reshaped dataframe.
-    """
+) -> pl.DataFrame:
     if agg:
-        pivot = table.pivot_table(index=column_to, columns=columns_from, values=column_value, aggfunc=agg)
-        if isinstance(pivot.columns, pd.MultiIndex):
-            pivot.columns = ["_".join(map(str, col)).strip() for col in pivot.columns.values]
-        else:
-            pivot.columns = pivot.columns.astype(str)
-        pivot.columns.name = None
-        return pivot.reset_index()
+        if columns_from is None or column_value is None:
+            raise ValueError("columns_from and column_value must be specified for pivot with aggregation.")
+        pivoted = table.pivot(values=column_value, index=column_to, columns=columns_from[0], aggregate_function=agg)
+        return pivoted
 
     elif column_value and columns_from:
-        pivot = table.pivot(index=column_to, columns=columns_from[0], values=column_value)
-        pivot.columns.name = None
-        return pivot.reset_index()
+        pivoted = table.pivot(values=column_value, index=column_to, columns=columns_from[0])
+        return pivoted
 
     elif column_value and not columns_from:
-        return table.melt(id_vars=column_to, value_vars=[column_value], var_name="variable", value_name="melted_value")
+        melted = table.melt(
+            id_vars=[column_to], value_vars=[column_value], variable_name="variable", value_name="melted_value"
+        )
+        return melted
 
     else:
         raise ValueError("Invalid combination of parameters for reshape.")
 
 
-def fillna(table: pd.DataFrame, mapping: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Fill missing values in specified columns with given values.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - mapping (Dict[str, Any]): Dictionary mapping columns to fill values.
-
-    Returns:
-    - pd.DataFrame: DataFrame with filled values.
-    """
-    return table.fillna(value=mapping)
+def fillna(table: pl.DataFrame, mapping: Dict[str, Any]) -> pl.DataFrame:
+    return table.with_columns([pl.col(k).fill_null(v) for k, v in mapping.items()])
 
 
-def sample(table: pd.DataFrame, frac: float) -> pd.DataFrame:
-    """
-    Return a random sample of the table.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - frac (float): Fraction of rows to return (e.g., 0.1 for 10%).
-
-    Returns:
-    - pd.DataFrame: Sampled dataframe.
-    """
-    return table.sample(frac=frac)
+def sample(table: pl.DataFrame, frac: float) -> pl.DataFrame:
+    return table.sample(fraction=frac)
 
 
-def concat(tables: List[pd.DataFrame]) -> pd.DataFrame:
-    """
-    Concatenate a list of dataframes vertically.
-
-    Parameters:
-    - tables (List[pd.DataFrame]): List of dataframes to concatenate.
-
-    Returns:
-    - pd.DataFrame: Concatenated dataframe.
-    """
-    return pd.concat(tables, ignore_index=True)
+def concat(tables: List[pl.DataFrame]) -> pl.DataFrame:
+    return pl.concat(tables, how="vertical")
 
 
-def drop_na(table: pd.DataFrame, subset: List[str] = None) -> pd.DataFrame:
-    """
-    Drop rows with missing values.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - subset (List[str], optional): Columns to check for missing values.
-
-    Returns:
-    - pd.DataFrame: DataFrame without missing values.
-    """
-    return table.dropna(subset=subset)
+def drop_na(table: pl.DataFrame, subset: List[str] = None) -> pl.DataFrame:
+    return table.drop_nulls(subset=subset)
 
 
-def replace(table: pd.DataFrame, columns: List[str], old: Any, new: Any) -> pd.DataFrame:
-    """
-    Replace specific values in selected columns.
-
-    Parameters:
-    - table (pd.DataFrame): Input dataframe.
-    - columns (List[str]): Columns to apply replacement on.
-    - old (Any): Value to be replaced.
-    - new (Any): Replacement value.
-
-    Returns:
-    - pd.DataFrame: Modified dataframe.
-    """
-    table_copy = table.copy()
+def replace(table: pl.DataFrame, columns: List[str], old: Any, new: Any) -> pl.DataFrame:
+    table_copy = table.clone()
     for col in columns:
-        table_copy[col] = table_copy[col].replace(old, new)
+        table_copy = table_copy.with_columns(pl.col(col).replace(old, new).alias(col))
     return table_copy
+
+
+TRANSFORM_NAMESPACE = {
+    "normalize_dtype": normalize_dtype,
+    "validate_table_schema": validate_table_schema,
+    "sort_by": sort_by,
+    "groupby_agg": groupby_agg,
+    "drop_duplicates": drop_duplicates,
+    "merge": merge,
+    "reshape": reshape,
+    "fillna": fillna,
+    "sample": sample,
+    "concat": concat,
+    "drop_na": drop_na,
+    "replace": replace,
+}

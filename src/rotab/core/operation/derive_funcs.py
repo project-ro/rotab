@@ -33,8 +33,9 @@ def ceil(col: str) -> pl.Expr:
     return pl.col(col).ceil()
 
 
-def abs(col: str) -> pl.Expr:
-    return pl.col(col).abs()
+def abs(col: str | pl.Expr) -> pl.Expr:
+    expr = pl.col(col) if isinstance(col, str) else col
+    return expr.abs()
 
 
 def startswith(col: str, prefix: str) -> pl.Expr:
@@ -107,3 +108,34 @@ def max(col1: str, col2: str) -> pl.Expr:
 
 def len(col: str) -> pl.Expr:
     return pl.col(col).str.len_chars()
+
+
+FUNC_NAMESPACE = {
+    "log": log,
+    "log1p": log1p,
+    "exp": exp,
+    "sqrt": sqrt,
+    "clip": clip,
+    "round": round,
+    "floor": floor,
+    "ceil": ceil,
+    "abs": abs,
+    "startswith": startswith,
+    "endswith": endswith,
+    "lower": lower,
+    "upper": upper,
+    "replace_values": replace_values,
+    "strip": strip,
+    "format_datetime": format_datetime,
+    "year": year,
+    "month": month,
+    "day": day,
+    "hour": hour,
+    "weekday": weekday,
+    "days_between": days_between,
+    "is_null": is_null,
+    "not_null": not_null,
+    "min": min,
+    "max": max,
+    "len": len,
+}
