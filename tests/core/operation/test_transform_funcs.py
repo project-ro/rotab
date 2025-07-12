@@ -1,6 +1,6 @@
 import polars as pl
 import pytest
-from rotab.core.operation.transform_funcs import (
+from rotab.core.operation.transform_funcs_polars import (
     normalize_dtype,
     validate_table_schema,
     sort_by,

@@ -25,8 +25,8 @@ from rotab.ast.util import INDENT
                 # === Import block ===
                 "import os",
                 "import pandas as pd",
-                "from rotab.core.operation.derive_funcs import *",
-                "from rotab.core.operation.transform_funcs import *",
+                "from rotab.core.operation.derive_funcs_pandas import *",
+                "from rotab.core.operation.transform_funcs_pandas import *",
                 "",
                 "",
                 # === Step function ===
@@ -67,8 +67,8 @@ from rotab.ast.util import INDENT
                 "import os",
                 "import polars as pl",
                 "from rotab.core.parse.parse import parse",
-                "from rotab.core.operation.derive_funcs import *",
-                "from rotab.core.operation.transform_funcs import *",
+                "from rotab.core.operation.derive_funcs_polars import *",
+                "from rotab.core.operation.transform_funcs_polars import *",
                 "",
                 "",
                 # === Step function ===

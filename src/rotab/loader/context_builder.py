@@ -9,10 +9,11 @@ from rotab.loader.schema_manager import SchemaManager
 
 
 class ContextBuilder:
-    def __init__(self, derive_func_path: str, transform_func_path: str, schema_manager: SchemaManager):
+    def __init__(self, derive_func_path: str, transform_func_path: str, schema_manager: SchemaManager, backend: str):
         self.derive_func_path = derive_func_path
         self.transform_func_path = transform_func_path
         self.schema_manager = schema_manager
+        self.backend = backend
 
     def _load_module_functions(self, module_name: str) -> dict:
         module = importlib.import_module(module_name)
@@ -33,8 +34,15 @@ class ContextBuilder:
         return {name: obj for name, obj in vars(module).items() if callable(obj) and not name.startswith("_")}
 
     def _get_eval_scope(self) -> dict:
-        core_derive = self._load_module_functions("rotab.core.operation.derive_funcs")
-        core_transform = self._load_module_functions("rotab.core.operation.transform_funcs")
+        if self.backend == "pandas":
+            core_derive = self._load_module_functions("rotab.core.operation.derive_funcs_pandas")
+            core_transform = self._load_module_functions("rotab.core.operation.transform_funcs_pandas")
+        elif self.backend == "polars":
+            core_derive = self._load_module_functions("rotab.core.operation.derive_funcs_polars")
+            core_transform = self._load_module_functions("rotab.core.operation.transform_funcs_polars")
+        else:
+            raise ValueError(f"Unsupported backend: {self.backend}")
+
         custom_derive = self._load_file_functions(self.derive_func_path)
         custom_transform = self._load_file_functions(self.transform_func_path)
 

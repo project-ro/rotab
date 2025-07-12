@@ -1,0 +1,29 @@
+import os
+import polars as pl
+from rotab.core.parse.parse import parse
+from rotab.core.operation.derive_funcs_polars import *
+from rotab.core.operation.transform_funcs_polars import *
+
+
+def step_filter_users_user_filter(user):
+    filtered_users = user
+    filtered_users = filtered_users.filter(parse('age < 30'))
+    filtered_users = filtered_users.with_columns(parse('age_group = age // 10'))
+    filtered_users = filtered_users.select(['user_id', 'age', 'age_group'])
+    return filtered_users
+
+
+def user_filter():
+    """Filter users under 30"""
+    user = pl.read_csv("data/inputs/user.csv", dtypes={"id": pl.Utf8, "user_id": pl.Utf8, "age": pl.Int64})
+    filtered_users = step_filter_users_user_filter(user)
+    filtered_users = filtered_users.with_columns(pl.col("user_id").cast(pl.Utf8))
+    filtered_users = filtered_users.with_columns(pl.col("age").cast(pl.Int64))
+    filtered_users = filtered_users.with_columns(pl.col("age_group").cast(pl.Int64))
+    filtered_users.write_csv("data/outputs/filtered_users.csv")
+    return filtered_users
+
+
+if __name__ == "__main__":
+    user_filter()
+

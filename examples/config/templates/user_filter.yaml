@@ -7,10 +7,12 @@ processes:
         - name: user
           io_type: csv
           path: ../../data/user.csv
+          schema: user
       outputs:
         - name: filtered_users
           io_type: csv
           path: ../../source/outputs/filtered_users.csv
+          schema: filtered_users
     steps:
       - name: filter_users
         with: user

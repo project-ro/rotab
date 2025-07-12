@@ -73,6 +73,7 @@ class Pipeline:
             derive_func_path=derive_func_path,
             transform_func_path=transform_func_path,
             schema_manager=schema_manager,
+            backend=backend,
         )
         context = context_builder.build(templates)
 

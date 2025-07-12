@@ -1,0 +1,4 @@
+user_id,amount,is_large
+100,5000,false
+101,15000,true
+103,800,false

@@ -2,7 +2,7 @@ import polars as pl
 import pytest
 import datetime
 
-from rotab.core.operation.derive_funcs import (
+from rotab.core.operation.derive_funcs_polars import (
     log,
     log1p,
     exp,

@@ -7,10 +7,12 @@ processes:
         - name: trans
           io_type: csv
           path: ../../data/transaction.csv
+          schema: trans
       outputs:
         - name: filtered_transactions
           io_type: csv
           path: ../../source/outputs/filtered_transactions.csv
+          schema: filtered_transactions
     steps:
       - name: summarize_transactions
         with: trans

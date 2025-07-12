@@ -70,8 +70,8 @@ from rotab.ast.util import INDENT
                 # === Imports ===
                 "import os",
                 "import pandas as pd",
-                "from rotab.core.operation.derive_funcs import *",
-                "from rotab.core.operation.transform_funcs import *",
+                "from rotab.core.operation.derive_funcs_pandas import *",
+                "from rotab.core.operation.transform_funcs_pandas import *",
                 "",
                 "",
                 # === Step 1 ===

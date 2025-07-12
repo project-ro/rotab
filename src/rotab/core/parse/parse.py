@@ -1,12 +1,9 @@
 import polars as pl
 import ast
-from rotab.core.operation.derive_funcs import FUNC_NAMESPACE
+from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
 
 
 def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
-
-    print("parse_derive_expr: 入力文字列 repr:", derive_str)
-
     exprs = []
     lines = [line.strip() for line in derive_str.strip().splitlines() if line.strip()]
 
@@ -198,36 +195,27 @@ def parse_filter_expr(expr_str: str) -> pl.Expr:
 def parse(value):
     if isinstance(value, list):
         if all(isinstance(v, str) for v in value):
-            print("parse: select 判定 (list of str)")
             return value
         else:
             raise ValueError(f"List elements must be strings for select mode: {value}")
 
     if isinstance(value, str):
         v = value.strip()
-        print("parse: 入力文字列 repr:", repr(v))
 
         if "=" in v:
             try:
-                print("parse: derive 判定へ進む")
                 res = parse_derive_expr(v)
-                print("parse: derive 成功", res)
                 return res
             except ValueError as e:
-                print("parse: derive 失敗", e)
                 pass
 
         try:
-            print("parse: filter 判定へ進む")
             tree = ast.parse(v, mode="eval")
         except SyntaxError as e:
-            print("parse: filter SyntaxError", e)
             raise ValueError(f"Invalid syntax in filter expression: {v}") from e
 
-        print("parse: filter AST body type:", type(tree.body))
         if isinstance(tree.body, (ast.Compare, ast.BoolOp, ast.BinOp, ast.UnaryOp, ast.Call, ast.Name)):
             res = parse_filter_expr(v)
-            print("parse: filter 成功", res)
             return res
         else:
             raise ValueError(f"Unsupported expression type for filter: {ast.dump(tree.body)}")

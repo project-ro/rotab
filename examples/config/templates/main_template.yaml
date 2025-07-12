@@ -11,15 +11,15 @@ processes:
       transactions based on amount, then merging the two datasets.
     io:
       inputs:
-        - name: user
+        - name: filtered_users
           io_type: csv
           path: ../../source/outputs/filtered_users.csv # relative to this file path
-          schema: user # optional, corresponds to the schema in <schema_dir>/user.yaml
+          schema: filtered_users # optional, corresponds to the schema in <schema_dir>/user.yaml
 
-        - name: trans
+        - name: filtered_transactions
           io_type: csv
           path: ../../source/outputs/filtered_transactions.csv
-          schema: trans
+          schema: filtered_transactions
 
       outputs:
         - name: final_output
@@ -29,25 +29,25 @@ processes:
 
     steps:
       - name: filter_users_main
-        with: user
+        with: filtered_users
         mutate:
           - filter: age > ${params.min_age}
           - derive: |
               log_age = log(age)
               age_bucket = age // 10 * 10
           - select: [user_id, log_age, age_bucket]
-        as: filtered_users
+        as: filtered_users_main
         when: ${params.test}
 
       - name: filter_transactions_main
-        with: trans
+        with: filtered_transactions
         mutate:
           - filter: amount > 1000
         as: filtered_trans
 
       - name: merge_transactions
-        with: [filtered_users, filtered_trans]
-        transform: merge(left=filtered_users, right=filtered_trans, on='user_id')
+        with: [filtered_users_main, filtered_trans]
+        transform: merge(left=filtered_users_main, right=filtered_trans, on='user_id')
         as: enriched
 
       - name: enrich_transactions

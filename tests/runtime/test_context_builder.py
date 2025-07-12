@@ -64,7 +64,10 @@ def test_context_builder():
         schema_manager = SchemaManager(schema_dir)
 
         builder = ContextBuilder(
-            derive_func_path=derive_path, transform_func_path=transform_path, schema_manager=schema_manager
+            derive_func_path=derive_path,
+            transform_func_path=transform_path,
+            schema_manager=schema_manager,
+            backend="pandas",
         )
 
         context = builder.build([dummy_template])
@@ -131,6 +134,7 @@ def test_context_builder_function_name_conflict():
             derive_func_path=derive_path,
             transform_func_path=transform_path,
             schema_manager=schema_manager,
+            backend="pandas",
         )
 
         with pytest.raises(ValueError) as e:

@@ -1,0 +1,12 @@
+name: filtered_transactions
+description: Filtered transaction table with flags
+columns:
+  - name: user_id
+    dtype: str
+    description: Unique identifier for each user
+  - name: amount
+    dtype: int
+    description: Transaction amount
+  - name: is_large
+    dtype: bool
+    description: Flag if transaction is large (>5000)

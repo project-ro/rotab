@@ -1,4 +1,5 @@
 import polars as pl
+from typing import Union
 
 
 def log(col: str, base: float = 10) -> pl.Expr:
@@ -33,7 +34,7 @@ def ceil(col: str) -> pl.Expr:
     return pl.col(col).ceil()
 
 
-def abs(col: str | pl.Expr) -> pl.Expr:
+def abs(col: Union[str, pl.Expr]) -> pl.Expr:
     expr = pl.col(col) if isinstance(col, str) else col
     return expr.abs()
 

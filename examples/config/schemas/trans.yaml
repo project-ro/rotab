@@ -1,9 +1,9 @@
 name: trans
-description: Transaction table with amounts and flags
+description: Transaction table
 columns:
   - name: id
     dtype: str
-    description: id
+    description: Row identifier
   - name: user_id
     dtype: str
     description: Unique identifier for each user

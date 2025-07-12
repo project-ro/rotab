@@ -66,12 +66,20 @@ class ProcessNode(Node):
             imports.append("import polars as pl")
             imports.append("from rotab.core.parse.parse import parse")
 
-        imports.extend(
-            [
-                "from rotab.core.operation.derive_funcs import *",
-                "from rotab.core.operation.transform_funcs import *",
-            ]
-        )
+        if backend == "pandas":
+            imports.extend(
+                [
+                    "from rotab.core.operation.derive_funcs_pandas import *",
+                    "from rotab.core.operation.transform_funcs_pandas import *",
+                ]
+            )
+        elif backend == "polars":
+            imports.extend(
+                [
+                    "from rotab.core.operation.derive_funcs_polars import *",
+                    "from rotab.core.operation.transform_funcs_polars import *",
+                ]
+            )
 
         if context.derive_func_path is not None:
             imports.append("from custom_functions.derive_funcs import *")

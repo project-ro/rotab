@@ -25,7 +25,7 @@ def test_parse_derive_basic():
 
 
 def test_parse_derive_with_functions(monkeypatch):
-    from rotab.core.operation.derive_funcs import FUNC_NAMESPACE
+    from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
 
     FUNC_NAMESPACE["func"] = lambda x: pl.col(x) * 10
     FUNC_NAMESPACE["funv"] = lambda x: pl.col(x) + 100

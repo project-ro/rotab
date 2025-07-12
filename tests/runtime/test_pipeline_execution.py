@@ -3,12 +3,11 @@ import tempfile
 import yaml
 import pandas as pd
 import textwrap
-import pytest
 
 from rotab.core.pipeline import Pipeline
 
 
-def setup_full_test_env(tmpdir: str):
+def setup_full_test_env(tmpdir: str, backend: str):
     template_dir = os.path.join(tmpdir, "templates")
     param_dir = os.path.join(tmpdir, "params")
     schema_dir = os.path.join(tmpdir, "schemas")
@@ -51,26 +50,11 @@ def setup_full_test_env(tmpdir: str):
                 },
                 "io": {
                     "inputs": [
-                        {
-                            "name": "user",
-                            "io_type": "csv",
-                            "path": "input/user.csv",
-                            "schema": "user",
-                        },
-                        {
-                            "name": "trans",
-                            "io_type": "csv",
-                            "path": "input/transaction.csv",
-                            "schema": "trans",
-                        },
+                        {"name": "user", "io_type": "csv", "path": "input/user.csv", "schema": "user"},
+                        {"name": "trans", "io_type": "csv", "path": "input/transaction.csv", "schema": "trans"},
                     ],
                     "outputs": [
-                        {
-                            "name": "final_output",
-                            "io_type": "csv",
-                            "path": "final_output.csv",
-                            "schema": "final_output",
-                        }
+                        {"name": "final_output", "io_type": "csv", "path": "final_output.csv", "schema": "final_output"}
                     ],
                 },
                 "steps": [
@@ -115,57 +99,79 @@ def setup_full_test_env(tmpdir: str):
         os.path.join(input_dir, "transaction.csv"), index=False
     )
 
-    derive_path = os.path.join(tmpdir, "derive_funcs.py")
-    with open(derive_path, "w") as f:
-        f.write(
-            textwrap.dedent(
-                """\
-                import polars as pl
-                import math
-                from rotab.core.operation.derive_funcs import FUNC_NAMESPACE
+    if backend == "pandas":
+        derive_path = os.path.join(tmpdir, "derive_funcs_pandas.py")
+        with open(derive_path, "w") as f:
+            f.write(
+                textwrap.dedent(
+                    """\
+                    import math
 
-                def custom_log_polars(x):
-                    return pl.col(x).log()
+                    def custom_log_pandas(x):
+                        return math.log(x)
 
-                def custom_log_pandas(x):
-                    return math.log(x)
+                    """
+                ).strip()
+                + "\n"
+            )
 
-                FUNC_NAMESPACE["custom_log_polars"] = custom_log_polars
-                FUNC_NAMESPACE["custom_log_pandas"] = custom_log_pandas
-                """
-            ).strip()
-            + "\n"
-        )
+        transform_path = os.path.join(tmpdir, "transform_funcs_pandas.py")
+        with open(transform_path, "w") as f:
+            f.write(
+                textwrap.dedent(
+                    """\
+                    import pandas as pd
 
-    transform_path = os.path.join(tmpdir, "transform_funcs.py")
-    with open(transform_path, "w") as f:
-        f.write(
-            textwrap.dedent(
-                """\
-                import pandas as pd
-                import polars as pl
-                from rotab.core.operation.derive_funcs import FUNC_NAMESPACE
+                    def merge_users_transactions_pandas(filtered_users, trans):
+                        return pd.merge(filtered_users, trans, on="user_id")
 
-                def merge_users_transactions_pandas(filtered_users, trans):
-                    return pd.merge(filtered_users, trans, on="user_id")
+                    """
+                ).strip()
+                + "\n"
+            )
+    else:
+        derive_path = os.path.join(tmpdir, "derive_funcs_polars.py")
+        with open(derive_path, "w") as f:
+            f.write(
+                textwrap.dedent(
+                    """\
+                    import polars as pl
+                    from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
 
-                def merge_users_transactions_polars(filtered_users, trans):
-                    return filtered_users.join(trans, on="user_id", how="inner")
+                    def custom_log_polars(x):
+                        return pl.col(x).log()
 
-                FUNC_NAMESPACE["merge_users_transactions_pandas"] = merge_users_transactions_pandas
-                FUNC_NAMESPACE["merge_users_transactions_polars"] = merge_users_transactions_polars
-                """
-            ).strip()
-            + "\n"
-        )
+                    FUNC_NAMESPACE["custom_log_polars"] = custom_log_polars
+                    """
+                ).strip()
+                + "\n"
+            )
+
+        transform_path = os.path.join(tmpdir, "transform_funcs_polars.py")
+        with open(transform_path, "w") as f:
+            f.write(
+                textwrap.dedent(
+                    """\
+                    import polars as pl
+                    from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
+
+                    def merge_users_transactions_polars(filtered_users, trans):
+                        return filtered_users.join(trans, on="user_id", how="inner")
+
+                    FUNC_NAMESPACE["merge_users_transactions_polars"] = merge_users_transactions_polars
+                    """
+                ).strip()
+                + "\n"
+            )
 
     return template_dir, param_dir, schema_dir, derive_path, transform_path, source_dir
 
 
-@pytest.mark.parametrize("backend", ["pandas", "polars"])
-def test_pipeline_execution_with_all_features(backend):
+def run_pipeline_test(backend: str):
     with tempfile.TemporaryDirectory() as tmpdir:
-        template_dir, param_dir, schema_dir, derive_path, transform_path, source_dir = setup_full_test_env(tmpdir)
+        template_dir, param_dir, schema_dir, derive_path, transform_path, source_dir = setup_full_test_env(
+            tmpdir, backend
+        )
 
         param_file = os.path.join(param_dir, "params.yaml")
         with open(param_file) as f:
@@ -199,3 +205,11 @@ def test_pipeline_execution_with_all_features(backend):
         assert set(df.columns) == {"user_id", "log_age", "age_bucket", "amount"}
         assert len(df) == 2
         assert set(df["user_id"]) == {"u2", "u3"}
+
+
+def test_pipeline_pandas():
+    run_pipeline_test("pandas")
+
+
+def test_pipeline_polars():
+    run_pipeline_test("polars")

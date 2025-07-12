@@ -1,0 +1,12 @@
+name: filtered_users
+description: Filtered user table after age filtering and grouping
+columns:
+  - name: user_id
+    dtype: str
+    description: Unique identifier for each user
+  - name: age
+    dtype: int
+    description: Age of the user
+  - name: age_group
+    dtype: int
+    description: Age group of the user
