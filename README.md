@@ -186,25 +186,51 @@ if __name__ == "__main__":
 
 ```mermaid
 graph TB
+%% Nodes
+%% Template: user_filter_template
+subgraph T_user_filter_template ["user_filter_template"]
+  %% Process: user_filter
+  subgraph P_user_filter ["user_filter"]
+    I_user_filter_template__user(["[I]user"])
+    S_user_filter_template__filter_users(["[S]filter_users"])
+    O_user_filter_template__filtered_users(["[O]filtered_users"])
+    I_user_filter_template__user --> S_user_filter_template__filter_users
+    S_user_filter_template__filter_users --> O_user_filter_template__filtered_users
+  end
+end
+%% Template: transaction_summary_template
+subgraph T_transaction_summary_template ["transaction_summary_template"]
+  %% Process: trans_summary
+  subgraph P_trans_summary ["trans_summary"]
+    I_transaction_summary_template__trans(["[I]trans"])
+    S_transaction_summary_template__summarize_transactions(["[S]summarize_transactions"])
+    O_transaction_summary_template__filtered_transactions(["[O]filtered_transactions"])
+    I_transaction_summary_template__trans --> S_transaction_summary_template__summarize_transactions
+    S_transaction_summary_template__summarize_transactions --> O_transaction_summary_template__filtered_transactions
+  end
+end
+%% Template: main_template
+subgraph T_main_template ["main_template"]
+  %% Process: transaction_enrichment
+  subgraph P_transaction_enrichment ["transaction_enrichment"]
+    I_main_template__user(["[I]user"])
+    I_main_template__trans(["[I]trans"])
+    S_main_template__filter_users_main(["[S]filter_users_main"])
+    S_main_template__filter_transactions_main(["[S]filter_transactions_main"])
+    S_main_template__merge_transactions(["[S]merge_transactions"])
+    S_main_template__enrich_transactions(["[S]enrich_transactions"])
+    O_main_template__final_output(["[O]final_output"])
+    I_main_template__user --> S_main_template__filter_users_main
+    I_main_template__trans --> S_main_template__filter_transactions_main
+    S_main_template__filter_users_main --> S_main_template__merge_transactions
+    S_main_template__filter_transactions_main --> S_main_template__merge_transactions
+    S_main_template__merge_transactions --> S_main_template__enrich_transactions
+    S_main_template__enrich_transactions --> O_main_template__final_output
+  end
+end
+%% Template Dependencies
 T_user_filter_template --> T_main_template
 T_transaction_summary_template --> T_main_template
-
-subgraph T_main_template
-  I_user(["[I]user"])
-  I_trans(["[I]trans"])
-  S_filter_users(["[S]filter_users_main"])
-  S_filter_trans(["[S]filter_transactions_main"])
-  S_merge(["[S]merge_transactions"])
-  S_enrich(["[S]enrich_transactions"])
-  O_final(["[O]final_output"])
-
-  I_user --> S_filter_users
-  I_trans --> S_filter_trans
-  S_filter_users --> S_merge
-  S_filter_trans --> S_merge
-  S_merge --> S_enrich
-  S_enrich --> O_final
-end
 ```
 
 ---
