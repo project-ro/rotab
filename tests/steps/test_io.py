@@ -16,7 +16,7 @@ def test_input_node_with_columns(base_context: ValidationContext):
     # polars
     script_polars = node.generate_script("polars", base_context)
     assert script_polars == [
-        'user = pl.read_csv("data/users.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})'
+        'user = pl.scan_csv("data/users.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})'
     ]
 
 
@@ -35,7 +35,7 @@ def test_input_node_without_columns():
 
     # polars
     script_polars = node.generate_script("polars", context)
-    assert script_polars == ['empty_df = pl.read_csv("data/empty.csv")']
+    assert script_polars == ['empty_df = pl.scan_csv("data/empty.csv")']
 
 
 def test_input_node_with_wildcard_column(tmp_path, base_context: ValidationContext):
@@ -81,7 +81,7 @@ def test_input_node_with_wildcard_column(tmp_path, base_context: ValidationConte
         "    _match = _regex.match(_basename)",
         "    if not _match: raise ValueError(f'Unexpected filename: {_basename}')",
         "    _val = _match.group(1)",
-        '    _df = pl.read_csv(_file, dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})',
+        '    _df = pl.scan_csv(_file, dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})',
         "    _df = _df.with_columns(pl.lit(_val).cast(pl.Utf8).alias('yyyymm'))",
         "    user_df_list.append(_df)",
         "user = pl.concat(user_df_list, how='vertical')",
@@ -112,7 +112,7 @@ def test_output_node_with_columns(base_context: ValidationContext):
         'user = user.with_columns(pl.col("log_age").cast(pl.Float64))',
         'user = user.with_columns(pl.col("age_bucket").cast(pl.Int64))',
     ]
-    assert script_polars[4] == 'user.write_csv("data/users_out.csv")'
+    assert script_polars[4] == 'user.collect().write_csv("data/users_out.csv")'
 
 
 def test_output_node_without_columns():
@@ -130,4 +130,4 @@ def test_output_node_without_columns():
 
     # polars
     script_polars = node.generate_script("polars", context)
-    assert script_polars == ['no_schema_df.write_csv("data/no_schema.csv")']
+    assert script_polars == ['no_schema_df.collect().write_csv("data/no_schema.csv")']

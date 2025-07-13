@@ -80,9 +80,9 @@ from rotab.ast.util import INDENT
                 # === Main function ===
                 "def transaction_enrichment():",
                 INDENT
-                + 'user = pl.read_csv("user.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})',
+                + 'user = pl.scan_csv("user.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})',
                 INDENT + "result = step_step_merge_transaction_enrichment(user)",
-                INDENT + 'result.write_csv("result.csv")',
+                INDENT + 'result.collect().write_csv("result.csv")',
                 INDENT + "return result",
                 "",
                 "",

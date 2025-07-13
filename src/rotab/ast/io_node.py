@@ -102,7 +102,7 @@ class InputNode(IOBaseNode):
                     f"    _match = _regex.match(_basename)",
                     f"    if not _match: raise ValueError(f'Unexpected filename: {{_basename}}')",
                     f"    _val = _match.group(1)",
-                    f"    _df = pl.read_csv(_file{dtype_arg})",
+                    f"    _df = pl.scan_csv(_file{dtype_arg})",
                     f"    _df = _df.with_columns(pl.lit(_val).cast(pl.Utf8).alias('{self.wildcard_column}'))",
                     f"    {self.name}_df_list.append(_df)",
                     f"{self.name} = pl.concat({self.name}_df_list, how='vertical')",
@@ -114,7 +114,7 @@ class InputNode(IOBaseNode):
             if backend == "pandas":
                 lines = [f'{self.name} = pd.read_csv("{self.path}"{dtype_arg})']
             elif backend == "polars":
-                lines = [f'{self.name} = pl.read_csv("{self.path}"{dtype_arg})']
+                lines = [f'{self.name} = pl.scan_csv("{self.path}"{dtype_arg})']
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
 
@@ -164,14 +164,14 @@ class OutputNode(IOBaseNode):
                     f'{self.name}.to_csv("{self.path}", index=False, columns={list(var_info.columns.keys())})'
                 )
             elif backend == "polars":
-                scripts.append(f'{self.name}.write_csv("{self.path}")')
+                scripts.append(f'{self.name}.collect().write_csv("{self.path}")')
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
         else:
             if backend == "pandas":
                 scripts.append(f'{self.name}.to_csv("{self.path}", index=False)')
             elif backend == "polars":
-                scripts.append(f'{self.name}.write_csv("{self.path}")')
+                scripts.append(f'{self.name}.collect().write_csv("{self.path}")')
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
 

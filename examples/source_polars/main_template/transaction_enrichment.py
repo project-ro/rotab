@@ -40,8 +40,8 @@ def step_enrich_transactions_transaction_enrichment(enriched):
 def transaction_enrichment():
     """This process enriches user transactions by filtering users based on age and
     transactions based on amount, then merging the two datasets."""
-    filtered_users = pl.read_csv("data/outputs/filtered_users.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "age_group": pl.Int64})
-    filtered_transactions = pl.read_csv("data/outputs/filtered_transactions.csv", dtypes={"user_id": pl.Utf8, "amount": pl.Int64, "is_large": pl.Boolean})
+    filtered_users = pl.scan_csv("data/outputs/filtered_users.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "age_group": pl.Int64})
+    filtered_transactions = pl.scan_csv("data/outputs/filtered_transactions.csv", dtypes={"user_id": pl.Utf8, "amount": pl.Int64, "is_large": pl.Boolean})
     filtered_users_main = step_filter_users_main_transaction_enrichment(filtered_users)
     filtered_trans = step_filter_transactions_main_transaction_enrichment(filtered_transactions)
     enriched = step_merge_transactions_transaction_enrichment(filtered_users_main, filtered_trans)
@@ -50,7 +50,7 @@ def transaction_enrichment():
     final_output = final_output.with_columns(pl.col("log_age").cast(pl.Float64))
     final_output = final_output.with_columns(pl.col("amount").cast(pl.Int64))
     final_output = final_output.with_columns(pl.col("high_value").cast(pl.Boolean))
-    final_output.write_csv("data/outputs/final_output.csv")
+    final_output.collect().write_csv("data/outputs/final_output.csv")
     return final_output
 
 
