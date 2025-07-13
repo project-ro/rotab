@@ -16,6 +16,9 @@ def main():
     parser.add_argument(
         "--source-dir", type=str, default=".generated", help="Output directory for generated code and data"
     )
+    parser.add_argument(
+        "--backend", type=str, choices=["pandas", "polars"], default="pandas", help="Backend to use (pandas or polars)"
+    )
     parser.add_argument("--execute", action="store_true", help="Execute the generated code")
     parser.add_argument("--dag", action="store_true", help="Generate a DAG (Mermaid format)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
@@ -34,6 +37,7 @@ def main():
     print(f"Derive function path    : {args.derive_func_path or '(none)'}")
     print(f"Transform function path : {args.transform_func_path or '(none)'}")
     print(f"Output directory        : {args.source_dir}")
+    print(f"Backend                 : {args.backend}")
     print(f"Execute                 : {'Yes' if args.execute else 'No'}")
     print(f"Generate DAG            : {'Yes' if args.dag else 'No'}\n")
 
@@ -44,6 +48,7 @@ def main():
         schema_dir=args.schema_dir,
         derive_func_path=args.derive_func_path,
         transform_func_path=args.transform_func_path,
+        backend=args.backend,
     )
 
     pipeline.run(

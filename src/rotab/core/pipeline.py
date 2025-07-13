@@ -1,6 +1,7 @@
 import os
 import subprocess
 import shutil
+import glob
 from copy import deepcopy
 from typing import Optional
 
@@ -15,9 +16,10 @@ logger = get_logger()
 
 
 class Pipeline:
-    def __init__(self, template_dir, templates, context, source_dir=".generated"):
+    def __init__(self, template_dir, templates, backend, context, source_dir=".generated"):
         self.template_dir = template_dir
         self.templates = templates
+        self.backend = backend
         self.context = context
         self.source_dir = source_dir
 
@@ -60,6 +62,7 @@ class Pipeline:
         schema_dir: str,
         derive_func_path: Optional[str] = None,
         transform_func_path: Optional[str] = None,
+        backend: str = "pandas",
     ):
         cls._clean_source_dir(source_dir)
         schema_manager = SchemaManager(schema_dir)
@@ -70,10 +73,11 @@ class Pipeline:
             derive_func_path=derive_func_path,
             transform_func_path=transform_func_path,
             schema_manager=schema_manager,
+            backend=backend,
         )
         context = context_builder.build(templates)
 
-        return cls(template_dir, templates, context, source_dir)
+        return cls(template_dir, templates, backend, context, source_dir)
 
     def rewrite_template_paths_and_copy_data(self, source_dir: str, template_dir: str):
         input_dir = os.path.join(source_dir, "data", "inputs")
@@ -88,23 +92,34 @@ class Pipeline:
                     orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
                     output_paths.add(orig_abs)
 
+        # 入力ファイルコピー
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
-                    orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
-                    fname = os.path.basename(node.path)
-                    dst_path = os.path.join(input_dir, fname)
+                    if "*" in node.path:
+                        pattern = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                        for matched_file in glob.glob(pattern):
+                            fname = os.path.basename(matched_file)
+                            dst_path = os.path.join(input_dir, fname)
+                            shutil.copyfile(matched_file, dst_path)
+                    else:
+                        orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                        fname = os.path.basename(node.path)
+                        dst_path = os.path.join(input_dir, fname)
 
-                    if orig_abs not in output_paths:
-                        shutil.copyfile(orig_abs, dst_path)
+                        if orig_abs not in output_paths:
+                            shutil.copyfile(orig_abs, dst_path)
 
+        # パスの書き換え
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
                     fname = os.path.basename(node.path)
                     original_path = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
 
-                    if original_path in output_paths:
+                    if "*" in node.path:
+                        new_path = os.path.relpath(os.path.join(input_dir, fname), source_dir)
+                    elif original_path in output_paths:
                         new_path = os.path.relpath(os.path.join(output_dir, fname), source_dir)
                     else:
                         new_path = os.path.relpath(os.path.join(input_dir, fname), source_dir)
@@ -130,7 +145,7 @@ class Pipeline:
             template.validate(validate_context)
 
     def generate_code(self, source_dir: str) -> None:
-        codegen = CodeGenerator(self.templates, self.context)
+        codegen = CodeGenerator(self.templates, self.backend, self.context)
         codegen.write_all(source_dir)
         logger.info(f"Code generated at: {source_dir}")
 

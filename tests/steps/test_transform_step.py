@@ -41,7 +41,7 @@ def test_transform_step_generate_script(base_context: ValidationContext, step, e
     base_context.schemas["df2"] = VariableInfo(type="dataframe", columns={})
 
     step.validate(base_context)
-    script = step.generate_script()
+    script = step.generate_script(backend="pandas")
 
     def normalize_code(code_lines: List[str]) -> str:
         return "\n".join(code_lines)

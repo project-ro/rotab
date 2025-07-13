@@ -9,9 +9,10 @@ from rotab.ast.util import INDENT
 
 
 @pytest.mark.parametrize(
-    "process, expected_script",
+    "backend, process, expected_script",
     [
         (
+            "pandas",
             ProcessNode(
                 name="transaction_enrichment",
                 description="This process enriches user transactions by filtering users based on age and\ntransactions based on amount, then merging the two datasets.",
@@ -69,8 +70,8 @@ from rotab.ast.util import INDENT
                 # === Imports ===
                 "import os",
                 "import pandas as pd",
-                "from rotab.core.operation.derive_funcs import *",
-                "from rotab.core.operation.transform_funcs import *",
+                "from rotab.core.operation.derive_funcs_pandas import *",
+                "from rotab.core.operation.transform_funcs_pandas import *",
                 "",
                 "",
                 # === Step 1 ===
@@ -132,10 +133,10 @@ from rotab.ast.util import INDENT
                 INDENT + "transaction_enrichment()",
                 "",
             ],
-        )
+        ),
     ],
 )
-def test_template_node_generation(process: ProcessNode, expected_script: List[str]):
+def test_template_node_generation(backend: str, process: ProcessNode, expected_script: List[str]):
     context = ValidationContext(
         available_vars={inp.name for inp in process.inputs},
         eval_scope={"merge": lambda left, right, on: None, "log": lambda x: None},
@@ -164,6 +165,6 @@ def test_template_node_generation(process: ProcessNode, expected_script: List[st
     )
 
     template.validate(context)
-    result = template.generate_script(context)
+    result = template.generate_script(backend, context)
 
     assert result["transaction_enrichment"] == expected_script

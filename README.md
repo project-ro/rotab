@@ -15,7 +15,7 @@ This is the minimal system designed to realize that philosophy.
 - When you need to share and review processing logic with non-engineers
 - When you want LLMs to generate, modify, or validate processing templates
 - When you need to rapidly prototype and test different processing pipelines
-- When you want to visualize the entire pandas-compliant workflow as a clear structure
+- When you want to visualize the entire workflow clearly
 
 ## What ROTAB Offers
 
@@ -95,16 +95,7 @@ processes:
 
 ### Parameter Injection
 
-You can inject values from a parameter YAML file using the \${...} syntax inside your templates.
-The parameter file must be explicitly specified via param_path when loading templates.
-
-For example:
-
-```yaml
-filter: age > ${params.min_age}
-```
-
-The value will be replaced by the corresponding entry in your parameter file, such as:
+You can inject values from a parameter YAML file using the `${...}` syntax inside your templates.
 
 ```yaml
 # params.yaml
@@ -117,15 +108,13 @@ This allows dynamic and reusable templates by separating logic from configuratio
 ### Running the Pipeline
 
 ```bash
-ROTAB \
-  --template-dir ./examples/config/templates \
-  --param-dir ./examples/config/params \
-  --schema-dir ./examples/config/schemas \
-  --derive ./custom_functions/new_columns_funcs.py \
-  --transform ./custom_functions/dataframes_funcs.py \
-  --output-dir ./scripts \
-  --execute \
-  --dag
+rotab --template-dir ./examples/config/templates \
+      --source-dir ./examples/source_polars \
+      --param-dir ./examples/config/params \
+      --schema-dir ./examples/config/schemas \
+      --backend polars \
+      --execute \
+      --dag
 ```
 
 - Python code is generated at the path specified in the template
@@ -137,55 +126,55 @@ ROTAB \
 
 ```python
 import os
-import pandas as pd
-from ROTAB.core.operation.derive_funcs import *
-from ROTAB.core.operation.transform_funcs import *
+import polars as pl
+import fsspec
+from rotab.core.parse.parse import parse
+from rotab.core.operation.derive_funcs_polars import *
+from rotab.core.operation.transform_funcs_polars import *
 
+def step_filter_users_main_transaction_enrichment(filtered_users):
+    filtered_users_main = filtered_users
+    filtered_users_main = filtered_users_main.filter(parse('age > 18'))
+    filtered_users_main = filtered_users_main.with_columns(parse("""
+        log_age = log(age)
+        age_bucket = age // 10 * 10
+        """))
+    filtered_users_main = filtered_users_main.select(['user_id', 'log_age', 'age_bucket'])
+    return filtered_users_main
 
-def step_filter_users_main_transaction_enrichment(user):
-    if True:
-        filtered_users = user.copy()
-        filtered_users = filtered_users.query('age > 18').copy()
-        filtered_users["log_age"] = filtered_users.apply(lambda row: log(row["age"]), axis=1)
-        filtered_users["age_bucket"] = filtered_users.apply(lambda row: row["age"] // 10 * 10, axis=1)
-        filtered_users = filtered_users[["user_id", "log_age", "age_bucket"]]
-    return filtered_users
-
-
-def step_filter_transactions_main_transaction_enrichment(trans):
-    filtered_trans = trans.copy()
-    filtered_trans = filtered_trans.query('amount > 1000').copy()
+def step_filter_transactions_main_transaction_enrichment(filtered_transactions):
+    filtered_trans = filtered_transactions
+    filtered_trans = filtered_trans.filter(parse('amount > 1000'))
     return filtered_trans
 
-
-def step_merge_transactions_transaction_enrichment(filtered_users, filtered_trans):
-    enriched = merge(left=filtered_users, right=filtered_trans, on='user_id')
+def step_merge_transactions_transaction_enrichment(filtered_users_main, filtered_trans):
+    enriched = merge(left=filtered_users_main, right=filtered_trans, on='user_id')
     return enriched
 
-
 def step_enrich_transactions_transaction_enrichment(enriched):
-    final_output = enriched.copy()
-    final_output["high_value"] = final_output.apply(lambda row: row["amount"] > 10000, axis=1)
-    final_output = final_output[["user_id", "log_age", "amount", "high_value"]]
+    final_output = enriched
+    final_output = final_output.with_columns(parse("""
+        high_value = amount > 10000
+        """))
+    final_output = final_output.select(['user_id', 'log_age', 'amount', 'high_value'])
     return final_output
-
 
 def transaction_enrichment():
     """This process enriches user transactions by filtering users based on age and
     transactions based on amount, then merging the two datasets."""
-    user = pd.read_csv("data/outputs/filtered_users.csv", dtype={'id': 'str', 'user_id': 'str', 'age': 'int', 'age_group': 'int'})
-    trans = pd.read_csv("data/outputs/filtered_transactions.csv", dtype={'id': 'str', 'user_id': 'str', 'amount': 'int'})
-    filtered_users = step_filter_users_main_transaction_enrichment(user)
-    filtered_trans = step_filter_transactions_main_transaction_enrichment(trans)
-    enriched = step_merge_transactions_transaction_enrichment(filtered_users, filtered_trans)
+    filtered_users = pl.scan_csv("data/outputs/filtered_users.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "age_group": pl.Int64})
+    filtered_transactions = pl.scan_csv("data/outputs/filtered_transactions.csv", dtypes={"user_id": pl.Utf8, "amount": pl.Int64, "is_large": pl.Boolean})
+    filtered_users_main = step_filter_users_main_transaction_enrichment(filtered_users)
+    filtered_trans = step_filter_transactions_main_transaction_enrichment(filtered_transactions)
+    enriched = step_merge_transactions_transaction_enrichment(filtered_users_main, filtered_trans)
     final_output = step_enrich_transactions_transaction_enrichment(enriched)
-    final_output["user_id"] = final_output["user_id"].astype("str")
-    final_output["log_age"] = final_output["log_age"].astype("float")
-    final_output["amount"] = final_output["amount"].astype("int")
-    final_output["high_value"] = final_output["high_value"].astype("bool")
-    final_output.to_csv("data/outputs/final_output.csv", index=False, columns=['user_id', 'log_age', 'amount', 'high_value'])
+    final_output = final_output.with_columns(pl.col("user_id").cast(pl.Utf8))
+    final_output = final_output.with_columns(pl.col("log_age").cast(pl.Float64))
+    final_output = final_output.with_columns(pl.col("amount").cast(pl.Int64))
+    final_output = final_output.with_columns(pl.col("high_value").cast(pl.Boolean))
+    with fsspec.open("data/outputs/final_output.csv", "w") as f:
+        final_output.collect().write_csv(f)
     return final_output
-
 
 if __name__ == "__main__":
     transaction_enrichment()
@@ -197,51 +186,25 @@ if __name__ == "__main__":
 
 ```mermaid
 graph TB
-%% Nodes
-%% Template: user_filter_template
-subgraph T_user_filter_template ["user_filter_template"]
-  %% Process: user_filter
-  subgraph P_user_filter ["user_filter"]
-    I_user_filter_template__user(["[I]user"])
-    S_user_filter_template__filter_users(["[S]filter_users"])
-    O_user_filter_template__filtered_users(["[O]filtered_users"])
-    I_user_filter_template__user --> S_user_filter_template__filter_users
-    S_user_filter_template__filter_users --> O_user_filter_template__filtered_users
-  end
-end
-%% Template: transaction_summary_template
-subgraph T_transaction_summary_template ["transaction_summary_template"]
-  %% Process: trans_summary
-  subgraph P_trans_summary ["trans_summary"]
-    I_transaction_summary_template__trans(["[I]trans"])
-    S_transaction_summary_template__summarize_transactions(["[S]summarize_transactions"])
-    O_transaction_summary_template__filtered_transactions(["[O]filtered_transactions"])
-    I_transaction_summary_template__trans --> S_transaction_summary_template__summarize_transactions
-    S_transaction_summary_template__summarize_transactions --> O_transaction_summary_template__filtered_transactions
-  end
-end
-%% Template: main_template
-subgraph T_main_template ["main_template"]
-  %% Process: transaction_enrichment
-  subgraph P_transaction_enrichment ["transaction_enrichment"]
-    I_main_template__user(["[I]user"])
-    I_main_template__trans(["[I]trans"])
-    S_main_template__filter_users_main(["[S]filter_users_main"])
-    S_main_template__filter_transactions_main(["[S]filter_transactions_main"])
-    S_main_template__merge_transactions(["[S]merge_transactions"])
-    S_main_template__enrich_transactions(["[S]enrich_transactions"])
-    O_main_template__final_output(["[O]final_output"])
-    I_main_template__user --> S_main_template__filter_users_main
-    I_main_template__trans --> S_main_template__filter_transactions_main
-    S_main_template__filter_users_main --> S_main_template__merge_transactions
-    S_main_template__filter_transactions_main --> S_main_template__merge_transactions
-    S_main_template__merge_transactions --> S_main_template__enrich_transactions
-    S_main_template__enrich_transactions --> O_main_template__final_output
-  end
-end
-%% Template Dependencies
 T_user_filter_template --> T_main_template
 T_transaction_summary_template --> T_main_template
+
+subgraph T_main_template
+  I_user(["[I]user"])
+  I_trans(["[I]trans"])
+  S_filter_users(["[S]filter_users_main"])
+  S_filter_trans(["[S]filter_transactions_main"])
+  S_merge(["[S]merge_transactions"])
+  S_enrich(["[S]enrich_transactions"])
+  O_final(["[O]final_output"])
+
+  I_user --> S_filter_users
+  I_trans --> S_filter_trans
+  S_filter_users --> S_merge
+  S_filter_trans --> S_merge
+  S_merge --> S_enrich
+  S_enrich --> O_final
+end
 ```
 
 ---
@@ -300,4 +263,4 @@ T_transaction_summary_template --> T_main_template
 ## License
 
 MIT License
-Copyright (c) 2025 PROJECT RO
+© 2025 PROJECT RO
