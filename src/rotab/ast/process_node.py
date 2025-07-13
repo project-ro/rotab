@@ -64,6 +64,7 @@ class ProcessNode(Node):
             imports.append("import pandas as pd")
         elif backend == "polars":
             imports.append("import polars as pl")
+            imports.append("import fsspec")
             imports.append("from rotab.core.parse.parse import parse")
 
         if backend == "pandas":

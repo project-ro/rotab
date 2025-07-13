@@ -66,6 +66,7 @@ from rotab.ast.util import INDENT
                 # === Import block ===
                 "import os",
                 "import polars as pl",
+                "import fsspec",
                 "from rotab.core.parse.parse import parse",
                 "from rotab.core.operation.derive_funcs_polars import *",
                 "from rotab.core.operation.transform_funcs_polars import *",
@@ -82,7 +83,8 @@ from rotab.ast.util import INDENT
                 INDENT
                 + 'user = pl.scan_csv("user.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})',
                 INDENT + "result = step_step_merge_transaction_enrichment(user)",
-                INDENT + 'result.collect().write_csv("result.csv")',
+                INDENT + 'with fsspec.open("result.csv", "w") as f:',
+                INDENT * 2 + "result.collect().write_csv(f)",
                 INDENT + "return result",
                 "",
                 "",

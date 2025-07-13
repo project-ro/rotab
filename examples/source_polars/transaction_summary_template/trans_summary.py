@@ -1,5 +1,6 @@
 import os
 import polars as pl
+import fsspec
 from rotab.core.parse.parse import parse
 from rotab.core.operation.derive_funcs_polars import *
 from rotab.core.operation.transform_funcs_polars import *
@@ -20,7 +21,8 @@ def trans_summary():
     filtered_transactions = filtered_transactions.with_columns(pl.col("user_id").cast(pl.Utf8))
     filtered_transactions = filtered_transactions.with_columns(pl.col("amount").cast(pl.Int64))
     filtered_transactions = filtered_transactions.with_columns(pl.col("is_large").cast(pl.Boolean))
-    filtered_transactions.collect().write_csv("data/outputs/filtered_transactions.csv")
+    with fsspec.open("data/outputs/filtered_transactions.csv", "w") as f:
+        filtered_transactions.collect().write_csv(f)
     return filtered_transactions
 
 

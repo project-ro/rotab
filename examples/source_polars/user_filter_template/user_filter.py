@@ -1,5 +1,6 @@
 import os
 import polars as pl
+import fsspec
 from rotab.core.parse.parse import parse
 from rotab.core.operation.derive_funcs_polars import *
 from rotab.core.operation.transform_funcs_polars import *
@@ -20,7 +21,8 @@ def user_filter():
     filtered_users = filtered_users.with_columns(pl.col("user_id").cast(pl.Utf8))
     filtered_users = filtered_users.with_columns(pl.col("age").cast(pl.Int64))
     filtered_users = filtered_users.with_columns(pl.col("age_group").cast(pl.Int64))
-    filtered_users.collect().write_csv("data/outputs/filtered_users.csv")
+    with fsspec.open("data/outputs/filtered_users.csv", "w") as f:
+        filtered_users.collect().write_csv(f)
     return filtered_users
 
 

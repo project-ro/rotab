@@ -164,17 +164,18 @@ class OutputNode(IOBaseNode):
                     f'{self.name}.to_csv("{self.path}", index=False, columns={list(var_info.columns.keys())})'
                 )
             elif backend == "polars":
-                scripts.append(f'{self.name}.collect().write_csv("{self.path}")')
+                scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
+                scripts.append(f"    {self.name}.collect().write_csv(f)")
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
         else:
             if backend == "pandas":
                 scripts.append(f'{self.name}.to_csv("{self.path}", index=False)')
             elif backend == "polars":
-                scripts.append(f'{self.name}.collect().write_csv("{self.path}")')
+                scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
+                scripts.append(f"    {self.name}.collect().write_csv(f)")
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
-
         return scripts
 
     def get_inputs(self) -> List[str]:

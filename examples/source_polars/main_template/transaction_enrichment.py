@@ -1,5 +1,6 @@
 import os
 import polars as pl
+import fsspec
 from rotab.core.parse.parse import parse
 from rotab.core.operation.derive_funcs_polars import *
 from rotab.core.operation.transform_funcs_polars import *
@@ -50,7 +51,8 @@ def transaction_enrichment():
     final_output = final_output.with_columns(pl.col("log_age").cast(pl.Float64))
     final_output = final_output.with_columns(pl.col("amount").cast(pl.Int64))
     final_output = final_output.with_columns(pl.col("high_value").cast(pl.Boolean))
-    final_output.collect().write_csv("data/outputs/final_output.csv")
+    with fsspec.open("data/outputs/final_output.csv", "w") as f:
+        final_output.collect().write_csv(f)
     return final_output
 
 

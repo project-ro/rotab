@@ -112,7 +112,8 @@ def test_output_node_with_columns(base_context: ValidationContext):
         'user = user.with_columns(pl.col("log_age").cast(pl.Float64))',
         'user = user.with_columns(pl.col("age_bucket").cast(pl.Int64))',
     ]
-    assert script_polars[4] == 'user.collect().write_csv("data/users_out.csv")'
+    assert script_polars[4] == 'with fsspec.open("data/users_out.csv", "w") as f:'
+    assert script_polars[5] == "    user.collect().write_csv(f)"
 
 
 def test_output_node_without_columns():
@@ -130,4 +131,5 @@ def test_output_node_without_columns():
 
     # polars
     script_polars = node.generate_script("polars", context)
-    assert script_polars == ['no_schema_df.collect().write_csv("data/no_schema.csv")']
+    assert script_polars[:1] == ['with fsspec.open("data/no_schema.csv", "w") as f:']
+    assert script_polars[1] == "    no_schema_df.collect().write_csv(f)"
