@@ -150,6 +150,10 @@ def build_params():
 
 def initialize_project():
     project_name = questionary.text("project name:").ask()
+    if not project_name:
+        print("Project name cannot be empty.")
+        return
+
     input_dir = questionary.path("input data directory").ask()
     backend = questionary.select("choose backend", choices=["polars", "pandas"]).ask()
 
@@ -165,23 +169,20 @@ def initialize_project():
     os.makedirs(template_dir, exist_ok=True)
     os.makedirs(custom_func_dir, exist_ok=True)
 
-    csv_found = False
     first_schema_name = None
-    for file in os.listdir(input_dir):
-        if file.endswith(".csv"):
-            csv_found = True
-            full_path = os.path.join(input_dir, file)
-            schema_name = os.path.splitext(file)[0]
-            if first_schema_name is None:
-                first_schema_name = schema_name
 
-            input_schema = infer_schema_from_csv(full_path, schema_name)
-            with open(os.path.join(schema_dir, f"{schema_name}.yaml"), "w", encoding="utf-8") as f:
-                yaml.dump(input_schema, f)
+    if input_dir and os.path.isdir(input_dir):
+        for file in os.listdir(input_dir):
+            if file.endswith(".csv"):
+                csv_found = True
+                full_path = os.path.join(input_dir, file)
+                schema_name = os.path.splitext(file)[0]
+                if first_schema_name is None:
+                    first_schema_name = schema_name
 
-    if not csv_found:
-        print("No CSV files found in input directory.")
-        return
+                input_schema = infer_schema_from_csv(full_path, schema_name)
+                with open(os.path.join(schema_dir, f"{schema_name}.yaml"), "w", encoding="utf-8") as f:
+                    yaml.dump(input_schema, f)
 
     template = build_template(input_schema_name=first_schema_name, output_schema_name="output_data")
     with open(os.path.join(template_dir, "template.yaml"), "w", encoding="utf-8") as f:

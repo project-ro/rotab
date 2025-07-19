@@ -277,59 +277,123 @@ def test_cli_main_with_multiple_processes():
 
 
 def test_cli_main_init_creates_expected_files():
+    old_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as temp_dir:
-        os.chdir(temp_dir)
-        input_dir = Path(temp_dir) / "input"
-        input_dir.mkdir(parents=True)
-        (input_dir / "input_data.csv").write_text("user_id,age\n1,25\n2,30\n", encoding="utf-8")
+        try:
+            os.chdir(temp_dir)
 
-        project_name = "testproject"
-        backend = "polars"
-        project_path = Path(temp_dir) / project_name
+            input_dir = Path(temp_dir) / "input"
+            input_dir.mkdir(parents=True)
+            (input_dir / "input_data.csv").write_text("user_id,age\n1,25\n2,30\n", encoding="utf-8")
 
-        argv = ["rotab", "--init"]
+            project_name = "testproject"
+            backend = "polars"
+            project_path = Path(temp_dir) / project_name
 
-        with patch.object(sys, "argv", argv), patch("questionary.text") as mock_text, patch(
-            "questionary.path"
-        ) as mock_path, patch("questionary.select") as mock_select:
+            argv = ["rotab", "--init"]
 
-            mock_text.return_value.ask.return_value = project_name
-            mock_path.return_value.ask.return_value = str(input_dir)
-            mock_select.return_value.ask.return_value = backend
+            with patch.object(sys, "argv", argv), patch("questionary.text") as mock_text, patch(
+                "questionary.path"
+            ) as mock_path, patch("questionary.select") as mock_select:
 
-            main()
+                mock_text.return_value.ask.return_value = project_name
+                mock_path.return_value.ask.return_value = str(input_dir)
+                mock_select.return_value.ask.return_value = backend
 
-        expected_files = [
-            project_path / "config" / "schemas" / "input_data.yaml",
-            project_path / "config" / "params" / "params.yaml",
-            project_path / "config" / "templates" / "template.yaml",
-            project_path / "custom_functions" / f"derive_funcs_{backend}.py",
-            project_path / "custom_functions" / f"transform_funcs_{backend}.py",
-        ]
-        for path in expected_files:
-            assert path.exists(), f"Missing file: {path}"
+                main()
 
-        input_yaml = yaml.safe_load((project_path / "config" / "schemas" / "input_data.yaml").read_text())
-        assert input_yaml["name"] == "input_data"
-        assert input_yaml["description"]
-        assert len(input_yaml["columns"]) == 2
-        assert input_yaml["columns"][0]["name"] == "user_id"
-        assert input_yaml["columns"][0]["dtype"] == "int"
-        assert input_yaml["columns"][1]["name"] == "age"
-        assert input_yaml["columns"][1]["dtype"] == "int"
+            expected_files = [
+                project_path / "config" / "schemas" / "input_data.yaml",
+                project_path / "config" / "params" / "params.yaml",
+                project_path / "config" / "templates" / "template.yaml",
+                project_path / "custom_functions" / f"derive_funcs_{backend}.py",
+                project_path / "custom_functions" / f"transform_funcs_{backend}.py",
+            ]
+            for path in expected_files:
+                assert path.exists(), f"Missing file: {path}"
 
-        tpl = yaml.safe_load((project_path / "config" / "templates" / "template.yaml").read_text())
-        assert tpl["name"] == "main_template"
-        proc = tpl["processes"][0]
-        assert proc["name"] == "simple_process"
-        assert proc["steps"][0]["name"] == "basic_filter"
-        assert any("derive" in op and "age_group" in op["derive"] for op in proc["steps"][0]["mutate"])
-        assert proc["steps"][1]["transform"] == "rename(col='user_id', to='id')"
+            input_yaml = yaml.safe_load((project_path / "config" / "schemas" / "input_data.yaml").read_text())
+            assert input_yaml["name"] == "input_data"
+            assert input_yaml["description"]
+            assert len(input_yaml["columns"]) == 2
+            assert input_yaml["columns"][0]["name"] == "user_id"
+            assert input_yaml["columns"][0]["dtype"] == "int"
+            assert input_yaml["columns"][1]["name"] == "age"
+            assert input_yaml["columns"][1]["dtype"] == "int"
 
-        params = yaml.safe_load((project_path / "config" / "params" / "params.yaml").read_text())
-        assert params["params"]["min_age"] == 20
+            tpl = yaml.safe_load((project_path / "config" / "templates" / "template.yaml").read_text())
+            assert tpl["name"] == "main_template"
+            proc = tpl["processes"][0]
+            assert proc["name"] == "simple_process"
+            assert proc["steps"][0]["name"] == "basic_filter"
+            assert any("derive" in op and "age_group" in op["derive"] for op in proc["steps"][0]["mutate"])
+            assert proc["steps"][1]["transform"] == "rename(col='user_id', to='id')"
 
-        for kind in ["derive", "transform"]:
-            fpath = project_path / "custom_functions" / f"{kind}_funcs_{backend}.py"
-            content = fpath.read_text(encoding="utf-8")
-            assert f"# {kind.capitalize()} functions for {backend}" in content
+            params = yaml.safe_load((project_path / "config" / "params" / "params.yaml").read_text())
+            assert params["params"]["min_age"] == 20
+
+            for kind in ["derive", "transform"]:
+                fpath = project_path / "custom_functions" / f"{kind}_funcs_{backend}.py"
+                content = fpath.read_text(encoding="utf-8")
+                assert f"# {kind.capitalize()} functions for {backend}" in content
+
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_cli_main_init_input_dir_empty_ok():
+    old_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            os.chdir(temp_dir)
+
+            empty_input_dir = Path(temp_dir) / "empty_input"
+            empty_input_dir.mkdir(parents=True)
+
+            project_name = "emptyinputproject"
+            backend = "polars"
+            project_path = Path(temp_dir) / project_name
+
+            argv = ["rotab", "--init"]
+
+            with patch.object(sys, "argv", argv), patch("questionary.text") as mock_text, patch(
+                "questionary.path"
+            ) as mock_path, patch("questionary.select") as mock_select:
+
+                mock_text.return_value.ask.return_value = project_name
+                mock_path.return_value.ask.return_value = str(empty_input_dir)
+                mock_select.return_value.ask.return_value = backend
+
+                main()
+
+            assert (project_path / "config" / "params" / "params.yaml").exists()
+            assert (project_path / "config" / "templates" / "template.yaml").exists()
+            assert (project_path / "custom_functions" / f"derive_funcs_{backend}.py").exists()
+            assert (project_path / "custom_functions" / f"transform_funcs_{backend}.py").exists()
+
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_cli_main_init_empty_project_name_exits_early():
+    old_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            os.chdir(temp_dir)
+
+            argv = ["rotab", "--init"]
+
+            with patch.object(sys, "argv", argv), patch("questionary.text") as mock_text, patch(
+                "questionary.path"
+            ) as mock_path, patch("questionary.select") as mock_select:
+
+                mock_text.return_value.ask.return_value = ""
+                mock_path.return_value.ask.return_value = str(temp_dir)
+                mock_select.return_value.ask.return_value = "polars"
+
+                main()
+
+            assert len(os.listdir(temp_dir)) == 0, "Expected no files/directories to be created"
+
+        finally:
+            os.chdir(old_cwd)
