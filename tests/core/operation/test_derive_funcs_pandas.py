@@ -19,7 +19,7 @@ from rotab.core.operation.derive_funcs_pandas import (
     lower,
     upper,
     replace_values,
-    format_datetime,
+    format_timestamp,
     year,
     month,
     day,
@@ -98,8 +98,8 @@ def test_replace_values():
 
 def test_format_datetime():
     dt = datetime.datetime(2023, 6, 1, 12, 0)
-    assert format_datetime(dt, "%Y-%m-%d") == "2023-06-01"
-    assert format_datetime("2023-06-01T12:00:00", "%Y-%m-%d") == "2023-06-01"
+    assert format_timestamp(dt, "%Y-%m-%d") == "2023-06-01"
+    assert format_timestamp("2023-06-01T12:00:00", "%Y-%m-%d") == "2023-06-01"
 
 
 def test_year():

@@ -18,7 +18,6 @@ from rotab.core.operation.derive_funcs_polars import (
     lower,
     upper,
     replace_values,
-    format_datetime,
     year,
     month,
     day,
@@ -130,12 +129,6 @@ def test_strip():
     assert out[0] == "abc"
 
 
-def test_format_datetime():
-    df = pl.DataFrame({"a": [datetime.datetime(2023, 1, 1)]})
-    out = df.select(format_datetime("a", "%Y")).to_series()
-    assert out[0] == "2023"
-
-
 def test_year():
     df = pl.DataFrame({"a": [datetime.datetime(2020, 5, 1)]})
     out = df.select(year("a")).to_series()
@@ -198,39 +191,37 @@ def test_max():
 
 
 @pytest.mark.parametrize(
-    "input_val,parse_fmt,input_tz,output_tz,expected",
+    "input_val,parse_fmt,output_format,input_tz,output_tz,expected",
     [
-        # === With offset ===
-        ("2025-07-19T14:30:00+09:00", "%Y-%m-%dT%H:%M:%S", None, "UTC", "2025-07-19T05:30:00"),
-        ("2025-07-19T14:30:00+09:00", "%Y-%m-%dT%H:%M:%S", None, "Asia/Tokyo", "2025-07-19T14:30:00"),
-        ("2025-07-19T14:30:00+09:00", "%Y-%m-%dT%H:%M:%S", None, None, "2025-07-19T14:30:00"),
-        # === Naive (no offset) -> Interpret as JST -> Output as UTC ===
-        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "Asia/Tokyo", "UTC", "2025-07-19T05:30:00"),
-        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "Asia/Tokyo", "Asia/Tokyo", "2025-07-19T14:30:00"),
-        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "Asia/Tokyo", None, "2025-07-19T14:30:00"),
-        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", None, None, "2025-07-19T14:30:00"),
-        # === Naive (Interpret as UTC) -> Output as JST ===
-        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "UTC", "Asia/Tokyo", "2025-07-19T23:30:00"),
-        # === Naive (Interpret as UTC) -> Output as UTC ===
-        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "UTC", "UTC", "2025-07-19T14:30:00"),
-        # === Naive (Assume UTC) -> Naive output ===
-        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "UTC", None, "2025-07-19T14:30:00"),
-        # === Year and month only ===
-        ("2025-03", "%Y-%m", "Asia/Tokyo", "UTC", "2025-03-01T00:00:00"),
-        ("2025/03", "%Y/%m", "Asia/Tokyo", "Asia/Seoul", "2025-03-01T00:00:00"),
-        ("2025-03", "%Y-%m", None, None, "2025-03-01T00:00:00"),
-        # === Year, month, and day ===
-        ("2020-03-12", "%Y-%m-%d", "Asia/Tokyo", "UTC", "2020-03-12T00:00:00"),
-        ("2020-03-12", "%Y-%m-%d", "UTC", "Asia/Tokyo", "2020-03-12T00:00:00"),
-        ("2020-03-12", "%Y-%m-%d", None, None, "2020-03-12T00:00:00"),
-        # === Japanese date format ===
-        ("2020年3月12日", "%Y年%m月%d日", "Asia/Tokyo", "UTC", "2020-03-12T00:00:00"),
-        ("2020年3月12日", "%Y年%m月%d日", None, None, "2020-03-12T00:00:00"),
+        ("2025-07-19T14:30:00+09:00", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S", None, "UTC", "2025-07-19T05:30:00"),
+        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S", "Asia/Tokyo", "UTC", "2025-07-19T05:30:00"),
+        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S", "UTC", "Asia/Tokyo", "2025-07-19T23:30:00"),
+        ("2020-03-12", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "Asia/Tokyo", "UTC", "2020-03-12T00:00:00"),
+        ("2020年3月12日", "%Y年%m月%d日", "%Y-%m-%dT%H:%M:%S", "Asia/Tokyo", "UTC", "2020-03-12T00:00:00"),
+        ("2025-07-19T14:30:00+09:00", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d", None, "UTC", "2025/07/19"),
+        (
+            "2025-01-01T08:59:59+09:00",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y年%m月",
+            None,
+            "UTC",
+            "2024年12月",
+        ),
+        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "%H時%M分", "UTC", "Asia/Tokyo", "23時30分"),
+        ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M", "Asia/Tokyo", None, "2025/07/19 14:30"),
     ],
 )
-def test_format_timestamp_cases(input_val, parse_fmt, input_tz, output_tz, expected):
+def test_format_timestamp_cases(input_val, parse_fmt, output_format, input_tz, output_tz, expected):
     df = pl.DataFrame({"ts": [input_val]})
     result = df.with_columns(
-        [format_timestamp("ts", parse_fmt, input_tz=input_tz, output_tz=output_tz).alias("parsed")]
+        [
+            format_timestamp(
+                "ts",
+                parse_fmt,
+                output_format=output_format,
+                input_tz=input_tz,
+                output_tz=output_tz,
+            ).alias("parsed")
+        ]
     )
     assert result["parsed"][0] == expected

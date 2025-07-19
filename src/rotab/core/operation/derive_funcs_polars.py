@@ -63,10 +63,6 @@ def strip(col: str) -> pl.Expr:
     return pl.col(col).str.strip_chars()
 
 
-def format_datetime(col: str, fmt: str) -> pl.Expr:
-    return pl.col(col).dt.strftime(fmt)
-
-
 def year(col: str) -> pl.Expr:
     return pl.col(col).dt.year()
 
@@ -111,7 +107,9 @@ def len(col: str) -> pl.Expr:
     return pl.col(col).str.len_chars()
 
 
-def format_timestamp(col: str, parse_fmt: str, input_tz: str = None, output_tz: str = None) -> pl.Expr:
+def format_timestamp(
+    col: str, parse_fmt: str, output_format: str, input_tz: str = None, output_tz: str = None
+) -> pl.Expr:
     """Formats a timestamp string into a datetime expression, handling timezones and parsing formats."""
     # 1. Prepare for parsing
     expr = pl.col(col)
@@ -170,7 +168,7 @@ def format_timestamp(col: str, parse_fmt: str, input_tz: str = None, output_tz: 
             final_expr = pl.when(offset_expr.is_not_null()).then(utc_expr + offset_duration).otherwise(utc_expr)
 
     # 5. Finally, format to a string
-    return final_expr.dt.strftime("%Y-%m-%dT%H:%M:%S")
+    return final_expr.dt.strftime(output_format)
 
 
 FUNC_NAMESPACE = {
@@ -189,7 +187,6 @@ FUNC_NAMESPACE = {
     "upper": upper,
     "replace_values": replace_values,
     "strip": strip,
-    "format_datetime": format_datetime,
     "year": year,
     "month": month,
     "day": day,
