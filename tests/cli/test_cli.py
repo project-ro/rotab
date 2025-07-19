@@ -7,6 +7,7 @@ import pytest
 import pandas as pd
 from unittest.mock import patch
 from rotab.cli.cli import main
+from pathlib import Path
 
 
 def write_yaml(path, data):
@@ -22,7 +23,6 @@ def create_dummy_project(base_dir):
     os.makedirs(param_dir)
     os.makedirs(schema_dir)
 
-    # 入力CSVを template_dir/input/ に複数配置
     input_dir = os.path.join(template_dir, "input")
     os.makedirs(input_dir, exist_ok=True)
     with open(os.path.join(input_dir, "dummy_202401.csv"), "w") as f:
@@ -30,7 +30,6 @@ def create_dummy_project(base_dir):
     with open(os.path.join(input_dir, "dummy_202402.csv"), "w") as f:
         f.write("user_id,age\nu3,40\nu4,45\n")
 
-    # テンプレート
     write_yaml(
         os.path.join(template_dir, "template.yaml"),
         {
@@ -70,7 +69,6 @@ def create_dummy_project(base_dir):
         },
     )
 
-    # スキーマとパラメータ
     write_yaml(
         os.path.join(schema_dir, "input_df.yaml"), {"columns": {"user_id": "str", "age": "int", "yyyymm": "str"}}
     )
@@ -121,16 +119,13 @@ def test_cli_main_variants(execute, dag, backend):
             with patch.object(sys, "argv", argv):
                 main()
 
-            # main.py 確認
             assert os.path.exists("main.py"), "main.py not found"
 
-            # DAG の出力有無確認
             if dag:
                 assert os.path.exists("mermaid.mmd"), "mermaid.mmd should be generated"
             else:
                 assert not os.path.exists("mermaid.mmd"), "mermaid.mmd should not be generated"
 
-            # 実行モードであれば、出力CSV確認
             if execute:
                 out_path = os.path.join(source_dir, "data", "outputs", "out.csv")
                 assert os.path.exists(out_path), "data/outputs/out.csv should be generated"
@@ -138,7 +133,6 @@ def test_cli_main_variants(execute, dag, backend):
                 df = pd.read_csv(out_path)
                 assert "yyyymm" in df.columns, "yyyymm column should exist in output"
 
-                # polars backend でも出力は csv で統一されるので値を検証
                 expected_vals = {"202401", "202402"}
                 df_yyyymm = set(df["yyyymm"].astype(str))
                 assert df_yyyymm == expected_vals, f"yyyymm values should match wildcard files: {df_yyyymm}"
@@ -202,7 +196,6 @@ def test_cli_main_with_multiple_processes():
     try:
         template_dir, param_dir, schema_dir = create_dummy_project(tmpdir)
 
-        # p2 を追加でテンプレートに書き込む
         template_path = os.path.join(template_dir, "template.yaml")
         with open(template_path, "r") as f:
             template_data = yaml.safe_load(f)
@@ -281,3 +274,62 @@ def test_cli_main_with_multiple_processes():
             os.chdir(cwd)
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_cli_main_init_creates_expected_files():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.chdir(temp_dir)
+        input_dir = Path(temp_dir) / "input"
+        input_dir.mkdir(parents=True)
+        (input_dir / "input_data.csv").write_text("user_id,age\n1,25\n2,30\n", encoding="utf-8")
+
+        project_name = "testproject"
+        backend = "polars"
+        project_path = Path(temp_dir) / project_name
+
+        argv = ["rotab", "--init"]
+
+        with patch.object(sys, "argv", argv), patch("questionary.text") as mock_text, patch(
+            "questionary.path"
+        ) as mock_path, patch("questionary.select") as mock_select:
+
+            mock_text.return_value.ask.return_value = project_name
+            mock_path.return_value.ask.return_value = str(input_dir)
+            mock_select.return_value.ask.return_value = backend
+
+            main()
+
+        expected_files = [
+            project_path / "config" / "schemas" / "input_data.yaml",
+            project_path / "config" / "params" / "params.yaml",
+            project_path / "config" / "templates" / "template.yaml",
+            project_path / "custom_functions" / f"derive_funcs_{backend}.py",
+            project_path / "custom_functions" / f"transform_funcs_{backend}.py",
+        ]
+        for path in expected_files:
+            assert path.exists(), f"Missing file: {path}"
+
+        input_yaml = yaml.safe_load((project_path / "config" / "schemas" / "input_data.yaml").read_text())
+        assert input_yaml["name"] == "input_data"
+        assert input_yaml["description"]
+        assert len(input_yaml["columns"]) == 2
+        assert input_yaml["columns"][0]["name"] == "user_id"
+        assert input_yaml["columns"][0]["dtype"] == "int"
+        assert input_yaml["columns"][1]["name"] == "age"
+        assert input_yaml["columns"][1]["dtype"] == "int"
+
+        tpl = yaml.safe_load((project_path / "config" / "templates" / "template.yaml").read_text())
+        assert tpl["name"] == "main_template"
+        proc = tpl["processes"][0]
+        assert proc["name"] == "simple_process"
+        assert proc["steps"][0]["name"] == "basic_filter"
+        assert any("derive" in op and "age_group" in op["derive"] for op in proc["steps"][0]["mutate"])
+        assert proc["steps"][1]["transform"] == "rename(col='user_id', to='id')"
+
+        params = yaml.safe_load((project_path / "config" / "params" / "params.yaml").read_text())
+        assert params["params"]["min_age"] == 20
+
+        for kind in ["derive", "transform"]:
+            fpath = project_path / "custom_functions" / f"{kind}_funcs_{backend}.py"
+            content = fpath.read_text(encoding="utf-8")
+            assert f"# {kind.capitalize()} functions for {backend}" in content

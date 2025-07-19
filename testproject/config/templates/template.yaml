@@ -1,0 +1,43 @@
+# Name of this Rotab template
+name: main_template
+# Templates to run before this one
+depends: []
+# List of all processes in this template
+processes:
+  -
+# Process name
+    name: simple_process
+    description: Basic filtering and transformation
+    io:
+# Input data sources and their schema
+      inputs:
+        - name: input_data
+          io_type: csv
+          path: ../../source/input.csv
+          schema: input_data
+# Output destination and expected schema
+      outputs:
+        - name: output_data
+          io_type: csv
+          path: ../../output/result.csv
+          schema: output_data
+    steps:
+      -
+# Step name
+        name: basic_filter
+# Which input variable to use
+        with: input_data
+# Operations to apply to the dataset
+        mutate:
+          - filter: age > ${params.min_age}
+          - derive: age_group = age // 10 * 10
+          - select:
+              - user_id
+              - age
+              - age_group
+# Alias name for the result of this step
+        as: filtered
+      - name: finalize
+        with: filtered
+        transform: rename(col='user_id', to='id')
+        as: output_data
