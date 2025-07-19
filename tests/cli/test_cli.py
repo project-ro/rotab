@@ -148,3 +148,136 @@ def test_cli_main_variants(execute, dag, backend):
             os.chdir(cwd)
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_cli_main_with_process_selection():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        template_dir, param_dir, schema_dir = create_dummy_project(tmpdir)
+        source_dir = os.path.join(tmpdir, "runspace")
+        os.makedirs(source_dir, exist_ok=True)
+
+        cwd = os.getcwd()
+        os.chdir(source_dir)
+        try:
+            argv = [
+                "rotab",
+                "--template-dir",
+                os.path.relpath(template_dir, source_dir),
+                "--param-dir",
+                os.path.relpath(param_dir, source_dir),
+                "--schema-dir",
+                os.path.relpath(schema_dir, source_dir),
+                "--source-dir",
+                ".",
+                "--backend",
+                "pandas",
+                "--processes",
+                "p1",
+            ]
+
+            with patch.object(sys, "argv", argv):
+                main()
+
+            main_path = os.path.join(source_dir, "main.py")
+            assert os.path.exists(main_path), "main.py should be generated"
+
+            with open(main_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            assert "from dummy_template.p1 import p1" in content
+            assert "p1()" in content
+
+            assert "p2()" not in content
+            assert "from dummy_template.p2 import p2" not in content
+
+        finally:
+            os.chdir(cwd)
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_cli_main_with_multiple_processes():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        template_dir, param_dir, schema_dir = create_dummy_project(tmpdir)
+
+        # p2 を追加でテンプレートに書き込む
+        template_path = os.path.join(template_dir, "template.yaml")
+        with open(template_path, "r") as f:
+            template_data = yaml.safe_load(f)
+        template_data["processes"].append(
+            {
+                "name": "p2",
+                "io": {
+                    "inputs": [
+                        {
+                            "name": "input_df",
+                            "io_type": "csv",
+                            "path": "input/dummy_*.csv",
+                            "wildcard_column": "yyyymm",
+                            "schema": "input_df",
+                        }
+                    ],
+                    "outputs": [
+                        {
+                            "name": "out_df",
+                            "io_type": "csv",
+                            "path": "output/out2.csv",
+                            "schema": "input_df",
+                        }
+                    ],
+                },
+                "steps": [
+                    {
+                        "name": "step2",
+                        "with": "input_df",
+                        "mutate": [{"select": ["user_id", "age"]}],
+                        "as": "out_df",
+                    }
+                ],
+            }
+        )
+        write_yaml(template_path, template_data)
+
+        source_dir = os.path.join(tmpdir, "runspace")
+        os.makedirs(source_dir, exist_ok=True)
+
+        cwd = os.getcwd()
+        os.chdir(source_dir)
+        try:
+            argv = [
+                "rotab",
+                "--template-dir",
+                os.path.relpath(template_dir, source_dir),
+                "--param-dir",
+                os.path.relpath(param_dir, source_dir),
+                "--schema-dir",
+                os.path.relpath(schema_dir, source_dir),
+                "--source-dir",
+                ".",
+                "--backend",
+                "pandas",
+                "--processes",
+                "p1",
+                "p2",
+            ]
+
+            with patch.object(sys, "argv", argv):
+                main()
+
+            main_path = os.path.join(source_dir, "main.py")
+            assert os.path.exists(main_path), "main.py should be generated"
+
+            with open(main_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            assert "from dummy_template.p1 import p1" in content
+            assert "from dummy_template.p2 import p2" in content
+            assert "p1()" in content
+            assert "p2()" in content
+
+        finally:
+            os.chdir(cwd)
+    finally:
+        shutil.rmtree(tmpdir)

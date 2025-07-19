@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.context.validation_context import ValidationContext
 from rotab.runtime.dag_generator import DagGenerator
@@ -62,10 +62,10 @@ class CodeGenerator:
             result[template.name] = template.generate_script(self.backend, self.context)
         return result
 
-    def write_all(self, source_dir: str) -> None:
+    def write_all(self, source_dir: str, selected_processes: Optional[List[str]] = None) -> None:
         """
         Write scripts to source_dir/template_name/process_name.py
-        Also generates source_dir/main.py that calls all processes in dependency order.
+        Also generates source_dir/main.py that calls all (or selected) processes in dependency order.
         """
         all_calls = []
 
@@ -80,9 +80,7 @@ class CodeGenerator:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write("\n".join(lines))
                     f.write("\n")
-                import_stmt = f"from {template.name}.{process_name} import {process_name}"
-                call_stmt = f"{process_name}()"
-                all_calls.append((import_stmt, call_stmt))
+                all_calls.append((process_name, template.name))
 
         # main.py を生成
         main_path = os.path.join(source_dir, "main.py")
@@ -90,8 +88,12 @@ class CodeGenerator:
             f.write("import os\nimport sys\n")
             f.write("project_root = os.path.dirname(os.path.abspath(__file__))\n")
             f.write("sys.path.insert(0, project_root)\n\n")
-            for import_stmt, _ in all_calls:
-                f.write(import_stmt + "\n")
+
+            for proc_name, tpl_name in all_calls:
+                if selected_processes is None or proc_name in selected_processes:
+                    f.write(f"from {tpl_name}.{proc_name} import {proc_name}\n")
+
             f.write("\n\nif __name__ == '__main__':\n")
-            for _, call_stmt in all_calls:
-                f.write(f"    {call_stmt}\n")
+            for proc_name, _ in all_calls:
+                if selected_processes is None or proc_name in selected_processes:
+                    f.write(f"    {proc_name}()\n")

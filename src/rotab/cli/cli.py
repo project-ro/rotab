@@ -19,6 +19,13 @@ def main():
     parser.add_argument(
         "--backend", type=str, choices=["pandas", "polars"], default="pandas", help="Backend to use (pandas or polars)"
     )
+    parser.add_argument(
+        "--processes",
+        type=str,
+        nargs="+",
+        help="List of process names to include in generated main.py (e.g. --processes user_filter trans_summary)",
+        default=None,
+    )
     parser.add_argument("--execute", action="store_true", help="Execute the generated code")
     parser.add_argument("--dag", action="store_true", help="Generate a DAG (Mermaid format)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
@@ -51,10 +58,7 @@ def main():
         backend=args.backend,
     )
 
-    pipeline.run(
-        execute=args.execute,
-        dag=args.dag,
-    )
+    pipeline.run(execute=args.execute, dag=args.dag, selected_processes=args.processes)
 
     if args.execute:
         logger.info("Pipeline run completed successfully.")

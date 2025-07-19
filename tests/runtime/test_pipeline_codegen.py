@@ -88,3 +88,32 @@ def test_pipeline_codegen_outputs(backend):
         process_file = "test_process.py"
         process_path = os.path.join(source_dir, template_name, process_file)
         assert os.path.isfile(process_path), f"{process_file} not found in {template_name} subdirectory"
+
+
+@pytest.mark.parametrize("backend", ["pandas", "polars"])
+def test_pipeline_codegen_outputs_with_process_selection(backend):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        template_dir, param_dir, schema_dir, derive_path, transform_path = setup_test_environment(tmpdir)
+        source_dir = os.path.join(tmpdir, "out")
+
+        pipeline = Pipeline.from_setting(
+            template_dir=template_dir,
+            source_dir=source_dir,
+            param_dir=param_dir,
+            schema_dir=schema_dir,
+            derive_func_path=derive_path,
+            transform_func_path=transform_path,
+            backend=backend,
+        )
+        pipeline.run(execute=False, dag=False, selected_processes=["test_process"])
+
+        main_path = os.path.join(source_dir, "main.py")
+        assert os.path.isfile(main_path), "main.py not found"
+
+        with open(main_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        assert "from test_template.test_process import test_process" in content
+        assert "test_process()" in content
+
+        assert "dummy_process()" not in content

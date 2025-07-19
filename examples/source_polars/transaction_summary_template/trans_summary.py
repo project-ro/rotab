@@ -8,9 +8,9 @@ from rotab.core.operation.transform_funcs_polars import *
 
 def step_summarize_transactions_trans_summary(trans):
     filtered_transactions = trans
-    filtered_transactions = filtered_transactions.filter(parse("amount > 0"))
-    filtered_transactions = filtered_transactions.with_columns(parse("is_large = amount > 5000"))
-    filtered_transactions = filtered_transactions.select(["user_id", "amount", "is_large"])
+    filtered_transactions = filtered_transactions.filter(parse('amount > 0'))
+    filtered_transactions = filtered_transactions.with_columns(parse('is_large = amount > 5000'))
+    filtered_transactions = filtered_transactions.select(['user_id', 'amount', 'is_large'])
     return filtered_transactions
 
 
@@ -28,3 +28,4 @@ def trans_summary():
 
 if __name__ == "__main__":
     trans_summary()
+

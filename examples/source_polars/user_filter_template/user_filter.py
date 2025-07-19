@@ -8,9 +8,9 @@ from rotab.core.operation.transform_funcs_polars import *
 
 def step_filter_users_user_filter(user):
     filtered_users = user
-    filtered_users = filtered_users.filter(parse("age < 30"))
-    filtered_users = filtered_users.with_columns(parse("age_group = age // 10"))
-    filtered_users = filtered_users.select(["user_id", "age", "age_group"])
+    filtered_users = filtered_users.filter(parse('age < 30'))
+    filtered_users = filtered_users.with_columns(parse('age_group = age // 10'))
+    filtered_users = filtered_users.select(['user_id', 'age', 'age_group'])
     return filtered_users
 
 
@@ -28,3 +28,4 @@ def user_filter():
 
 if __name__ == "__main__":
     user_filter()
+
