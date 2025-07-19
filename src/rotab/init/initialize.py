@@ -1,6 +1,6 @@
 import os
-import pandas as pd
 import csv
+import fsspec
 import questionary
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
@@ -10,39 +10,50 @@ yaml.indent(mapping=2, sequence=4, offset=2)
 yaml.allow_unicode = True
 
 
-def infer_schema_from_csv(path, schema_name):
-    with open(path, newline="", encoding="utf-8") as f:
+def guess_type(value):
+    try:
+        int(value)
+        return "int"
+    except:
+        try:
+            float(value)
+            return "float"
+        except:
+            if value.lower() in ["true", "false"]:
+                return "bool"
+            return "str"
+
+
+def infer_schema_from_csv(path, schema_name, max_rows=100):
+    with fsspec.open(path, mode="rt", encoding="utf-8") as f:
         reader = csv.reader(f)
-        header = next(reader)  # 最初の行だけ読む（超高速）
+        header = next(reader)
+        sample_data = []
+        for _ in range(max_rows):
+            try:
+                sample_data.append(next(reader))
+            except StopIteration:
+                break
 
-    df = pd.read_csv(path, usecols=header, nrows=100)
-
-    schema = CommentedMap()
-    schema["name"] = schema_name
-    schema.yaml_set_comment_before_after_key("name", before="Name of the schema")
-    schema["description"] = "Inferred schema from sample CSV"
-    schema.yaml_set_comment_before_after_key("description", before="What this dataset represents")
-
-    columns = CommentedSeq()
-    for col in df.columns:
-        dtype = str(df[col].dtype)
-        if dtype.startswith("int"):
-            schema_type = "int"
-        elif dtype.startswith("float"):
-            schema_type = "float"
-        elif dtype.startswith("bool"):
-            schema_type = "bool"
+    col_types = []
+    for col_idx, col_name in enumerate(header):
+        types = [guess_type(row[col_idx]) for row in sample_data if len(row) > col_idx and row[col_idx].strip()]
+        if all(t == "int" for t in types):
+            dtype = "int"
+        elif all(t in ("int", "float") for t in types):
+            dtype = "float"
+        elif all(t == "bool" for t in types):
+            dtype = "bool"
         else:
-            schema_type = "str"
-        col_entry = CommentedMap()
-        col_entry["name"] = col
-        col_entry["dtype"] = schema_type
-        col_entry["description"] = f"Inferred as {schema_type}"
-        columns.append(col_entry)
+            dtype = "str"
 
-    schema["columns"] = columns
-    schema.yaml_set_comment_before_after_key("columns", before="List of fields with types and meaning")
-    return schema
+        col_types.append({"name": col_name, "dtype": dtype, "description": f"Inferred as {dtype}"})
+
+    return {
+        "name": schema_name,
+        "description": "Inferred schema from sample CSV",
+        "columns": col_types,
+    }
 
 
 def build_output_schema(output_schema_name):

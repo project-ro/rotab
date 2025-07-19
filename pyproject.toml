@@ -26,6 +26,7 @@ polars = "^1.31.0"
 fsspec = "^2025.5.1"
 questionary = "^2.1.0"
 ruamel-yaml = "^0.18.14"
+s3fs = "^2025.7.0"
 
 
 [tool.poetry.group.dev.dependencies]
