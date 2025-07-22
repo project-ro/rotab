@@ -1,35 +1,55 @@
 import argparse
 from rotab.core.pipeline import Pipeline
 from rotab.utils.logger import get_logger, configure_logger
+from rotab.init.initialize import initialize_project
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run a ROTAB data processing pipeline.")
+    parser = argparse.ArgumentParser(description="ROTAB: Run or initialize a structured data pipeline.")
+    parser.add_argument("--init", action="store_true", help="Initialize a new ROTAB project (interactive)")
 
-    parser.add_argument("--template-dir", type=str, required=True, help="Directory containing YAML templates")
-    parser.add_argument("--param-dir", type=str, help="Directory containing parameter YAMLs", default=None)
-    parser.add_argument("--schema-dir", type=str, required=True, help="Directory containing schema YAMLs")
-    parser.add_argument("--derive-func-path", type=str, help="Path to custom derive function definitions", default=None)
-    parser.add_argument(
-        "--transform-func-path", type=str, help="Path to custom transform function definitions", default=None
-    )
-    parser.add_argument(
-        "--source-dir", type=str, default=".generated", help="Output directory for generated code and data"
-    )
-    parser.add_argument(
-        "--backend", type=str, choices=["pandas", "polars"], default="pandas", help="Backend to use (pandas or polars)"
-    )
-    parser.add_argument("--execute", action="store_true", help="Execute the generated code")
-    parser.add_argument("--dag", action="store_true", help="Generate a DAG (Mermaid format)")
+    parser.add_argument("--template-dir", type=str, help="YAML template directory")
+    parser.add_argument("--param-dir", type=str, default=None, help="YAML parameter directory (optional)")
+    parser.add_argument("--schema-dir", type=str, help="Schema YAML directory")
+    parser.add_argument("--derive-func-path", type=str, default=None, help="Custom derive function path")
+    parser.add_argument("--transform-func-path", type=str, default=None, help="Custom transform function path")
+    parser.add_argument("--source-dir", type=str, default=".generated", help="Output directory")
+    parser.add_argument("--backend", type=str, choices=["pandas", "polars"], default="pandas", help="Backend to use")
+    parser.add_argument("--processes", type=str, nargs="+", default=None, help="Process names to include")
+    parser.add_argument("--execute", action="store_true", help="Execute the generated pipeline")
+    parser.add_argument("--dag", action="store_true", help="Generate DAG output")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+
     args = parser.parse_args()
 
-    # Configure logger based on --debug flag
     configure_logger(level="DEBUG" if args.debug else "INFO")
     logger = get_logger()
     logger.info("ROTAB CLI started.")
 
-    # Show configuration
+    if args.init:
+        # disallowed = [
+        #     "--template-dir",
+        #     "--param-dir",
+        #     "--schema-dir",
+        #     "--derive-func-path",
+        #     "--transform-func-path",
+        #     "--source-dir",
+        #     "--backend",
+        #     "--processes",
+        #     "--execute",
+        #     "--dag",
+        # ]
+        # for flag in disallowed:
+        #     if getattr(args, flag.lstrip("--").replace("-", "_")) not in (None, False):
+        #         parser.error(f"--init cannot be used with {flag}")
+
+        initialize_project()
+        logger.info("Project initialized successfully.")
+        return
+
+    if not args.template_dir or not args.schema_dir:
+        parser.error("Must provide --template-dir and --schema-dir unless using --init")
+
     print("=== ROTAB Pipeline Configuration ===")
     print(f"Template directory      : {args.template_dir}")
     print(f"Parameter directory     : {args.param_dir or '(none)'}")
@@ -39,7 +59,8 @@ def main():
     print(f"Output directory        : {args.source_dir}")
     print(f"Backend                 : {args.backend}")
     print(f"Execute                 : {'Yes' if args.execute else 'No'}")
-    print(f"Generate DAG            : {'Yes' if args.dag else 'No'}\n")
+    print(f"Generate DAG            : {'Yes' if args.dag else 'No'}")
+    print(f"Processes               : {args.processes or '(all)'}")
 
     pipeline = Pipeline.from_setting(
         template_dir=args.template_dir,
@@ -51,14 +72,10 @@ def main():
         backend=args.backend,
     )
 
-    pipeline.run(
-        execute=args.execute,
-        dag=args.dag,
-    )
+    pipeline.run(execute=args.execute, dag=args.dag, selected_processes=args.processes)
 
     if args.execute:
         logger.info("Pipeline run completed successfully.")
     else:
         logger.info("Code generation completed successfully.")
-        print("\nTo run the generated code manually:")
-        print(f"   python {args.source_dir}/main.py")
+        print(f"\nTo run the generated code manually:\n  python {args.source_dir}/main.py")

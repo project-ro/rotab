@@ -22,7 +22,7 @@ def user_filter():
     filtered_users = filtered_users.with_columns(pl.col("age").cast(pl.Int64))
     filtered_users = filtered_users.with_columns(pl.col("age_group").cast(pl.Int64))
     with fsspec.open("data/outputs/filtered_users.csv", "w") as f:
-        filtered_users.collect().write_csv(f)
+        filtered_users.collect(streaming=True).write_csv(f)
     return filtered_users
 
 

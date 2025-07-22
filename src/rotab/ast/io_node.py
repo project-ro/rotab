@@ -165,7 +165,7 @@ class OutputNode(IOBaseNode):
                 )
             elif backend == "polars":
                 scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
-                scripts.append(f"    {self.name}.collect().write_csv(f)")
+                scripts.append(f"    {self.name}.collect(streaming=True).write_csv(f)")
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
         else:
@@ -173,7 +173,7 @@ class OutputNode(IOBaseNode):
                 scripts.append(f'{self.name}.to_csv("{self.path}", index=False)')
             elif backend == "polars":
                 scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
-                scripts.append(f"    {self.name}.collect().write_csv(f)")
+                scripts.append(f"    {self.name}.collect(streaming=True).write_csv(f)")
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
         return scripts

@@ -64,12 +64,6 @@ def replace_values(x: str, old: str, new: str) -> str:
     return x.replace(old, new)
 
 
-def format_datetime(x: Union[datetime.datetime, str], format: str) -> str:
-    if isinstance(x, str):
-        x = datetime.datetime.fromisoformat(x)
-    return x.strftime(format)
-
-
 def year(x: Union[datetime.datetime, str]) -> int:
     if isinstance(x, str):
         x = datetime.datetime.fromisoformat(x)
@@ -126,3 +120,9 @@ def min(x1: float, x2: float) -> float:
 
 def max(x1: float, x2: float) -> float:
     return builtins.max(x1, x2)
+
+
+def format_timestamp(x: Union[datetime.datetime, str], format: str) -> str:
+    if isinstance(x, str):
+        x = datetime.datetime.fromisoformat(x)
+    return x.strftime(format)

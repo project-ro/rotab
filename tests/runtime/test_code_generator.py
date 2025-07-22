@@ -126,7 +126,7 @@ def template_and_context(request) -> tuple[TemplateNode, ValidationContext, List
             INDENT + 'result = result.with_columns(pl.col("log_age").cast(pl.Float64))',
             INDENT + 'result = result.with_columns(pl.col("age_bucket").cast(pl.Int64))',
             INDENT + 'with fsspec.open("result.csv", "w") as f:',
-            INDENT * 2 + "result.collect().write_csv(f)",
+            INDENT * 2 + "result.collect(streaming=True).write_csv(f)",
             INDENT + "return result",
             "",
             "",

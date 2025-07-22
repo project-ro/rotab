@@ -22,7 +22,7 @@ def trans_summary():
     filtered_transactions = filtered_transactions.with_columns(pl.col("amount").cast(pl.Int64))
     filtered_transactions = filtered_transactions.with_columns(pl.col("is_large").cast(pl.Boolean))
     with fsspec.open("data/outputs/filtered_transactions.csv", "w") as f:
-        filtered_transactions.collect().write_csv(f)
+        filtered_transactions.collect(streaming=True).write_csv(f)
     return filtered_transactions
 
 

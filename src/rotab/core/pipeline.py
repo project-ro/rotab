@@ -3,7 +3,7 @@ import subprocess
 import shutil
 import glob
 from copy import deepcopy
-from typing import Optional
+from typing import Optional, List
 
 from rotab.loader.loader import Loader
 from rotab.loader.schema_manager import SchemaManager
@@ -144,9 +144,9 @@ class Pipeline:
         for template in self.templates:
             template.validate(validate_context)
 
-    def generate_code(self, source_dir: str) -> None:
+    def generate_code(self, source_dir: str, selected_processes: Optional[List[str]] = None) -> None:
         codegen = CodeGenerator(self.templates, self.backend, self.context)
-        codegen.write_all(source_dir)
+        codegen.write_all(source_dir, selected_processes=selected_processes)
         logger.info(f"Code generated at: {source_dir}")
 
     def generate_dag(self, source_dir: str) -> None:
@@ -172,7 +172,7 @@ class Pipeline:
             logger.error(f"STDERR:\n{e.stderr}")
             raise
 
-    def run(self, execute: bool = True, dag: bool = False) -> None:
+    def run(self, execute: bool = True, dag: bool = False, selected_processes: Optional[List[str]] = None) -> None:
         logger.info("Pipeline run started.")
         os.makedirs(self.source_dir, exist_ok=True)
         self.copy_custom_functions(self.source_dir)
@@ -181,7 +181,7 @@ class Pipeline:
         if dag:
             self.generate_dag(self.source_dir)
         self.validate_all()
-        self.generate_code(self.source_dir)
+        self.generate_code(self.source_dir, selected_processes=selected_processes)
         if execute:
             self.execute_script(self.source_dir)
         logger.info("Pipeline run completed.")

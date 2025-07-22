@@ -1,0 +1,12 @@
+# Name of the schema
+name: input_data
+# What this dataset represents
+description: Inferred schema from sample CSV
+# List of fields with types and meaning
+columns:
+  - name: user_id
+    dtype: int
+    description: Inferred as int
+  - name: age
+    dtype: int
+    description: Inferred as int

@@ -63,10 +63,6 @@ def strip(col: str) -> pl.Expr:
     return pl.col(col).str.strip_chars()
 
 
-def format_datetime(col: str, fmt: str) -> pl.Expr:
-    return pl.col(col).dt.strftime(fmt)
-
-
 def year(col: str) -> pl.Expr:
     return pl.col(col).dt.year()
 
@@ -111,6 +107,70 @@ def len(col: str) -> pl.Expr:
     return pl.col(col).str.len_chars()
 
 
+def format_timestamp(
+    col: str, parse_fmt: str, output_format: str, input_tz: str = None, output_tz: str = None
+) -> pl.Expr:
+    """Formats a timestamp string into a datetime expression, handling timezones and parsing formats."""
+    # 1. Prepare for parsing
+    expr = pl.col(col)
+    offset_expr = expr.str.extract(r"([\+\-]\d{2}:\d{2})$", 0)
+    expr_cleaned = expr.str.replace(r"([\+\-]\d{2}:\d{2})$", "")
+
+    # 2. Determine and complete the date/time format
+    is_date_only = not any(token in parse_fmt for token in ("%H", "%M", "%S"))
+    fmt = parse_fmt
+    if "%d" not in fmt:
+        if "%m" in parse_fmt:
+            separator = "-" if "-" in parse_fmt else "/" if "/" in parse_fmt else ""
+            expr_cleaned = expr_cleaned + f"{separator}01"
+            fmt += f"{separator}%d"
+
+    dt_expr = expr_cleaned.str.strptime(pl.Datetime, fmt, strict=False)
+
+    # 3. Always calculate the absolute time in the UTC timezone
+    offset_hour = expr.str.extract(r"([\+\-]\d{2}):\d{2}$", 1).cast(pl.Int32)
+    offset_minute = expr.str.extract(r":(\d{2})$", 1).cast(pl.Int32)
+    offset_duration = pl.duration(minutes=(offset_hour.sign() * (offset_hour.abs() * 60 + offset_minute)))
+
+    utc_expr = (
+        pl.when(offset_expr.is_not_null())
+        .then((dt_expr - offset_duration).dt.replace_time_zone("UTC"))
+        .otherwise(
+            pl.when(pl.lit(input_tz).is_not_null())
+            .then(dt_expr.dt.replace_time_zone(input_tz).dt.convert_time_zone("UTC"))
+            .otherwise(dt_expr.dt.replace_time_zone("UTC"))
+        )
+    )
+
+    # 4. Branch the logic using a Python if-statement to construct the final expression
+    final_expr: pl.Expr
+
+    # Case 1: The timezone conversion is straightforward
+    if output_tz and not is_date_only:
+        final_expr = utc_expr.dt.convert_time_zone(output_tz)
+    # Case 2: All other cases (date-only, or no output_tz specified) -> display the original local time
+    else:
+        # If input_tz is available, use it as a fallback
+        if input_tz:
+            final_expr = (
+                pl.when(offset_expr.is_not_null())
+                .then(utc_expr + offset_duration)
+                .otherwise(
+                    # Convert utc_expr to input_tz to get the "wall clock" time,
+                    # then strip the timezone info, and re-label it as UTC.
+                    utc_expr.dt.convert_time_zone(input_tz)
+                    .dt.replace_time_zone(None)
+                    .dt.replace_time_zone("UTC")
+                )
+            )
+        # If input_tz is not available, the fallback remains UTC
+        else:
+            final_expr = pl.when(offset_expr.is_not_null()).then(utc_expr + offset_duration).otherwise(utc_expr)
+
+    # 5. Finally, format to a string
+    return final_expr.dt.strftime(output_format)
+
+
 FUNC_NAMESPACE = {
     "log": log,
     "log1p": log1p,
@@ -127,7 +187,6 @@ FUNC_NAMESPACE = {
     "upper": upper,
     "replace_values": replace_values,
     "strip": strip,
-    "format_datetime": format_datetime,
     "year": year,
     "month": month,
     "day": day,
@@ -139,4 +198,5 @@ FUNC_NAMESPACE = {
     "min": min,
     "max": max,
     "len": len,
+    "format_timestamp": format_timestamp,
 }

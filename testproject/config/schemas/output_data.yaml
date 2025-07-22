@@ -1,0 +1,15 @@
+# Schema name for output
+name: output_data
+# Brief description of output content
+description: Schema for processed output file
+# Output columns with explanation
+columns:
+  - name: id
+    dtype: str
+    description: Renamed from user_id
+  - name: age
+    dtype: int
+    description: Passed through
+  - name: age_group
+    dtype: int
+    description: 'Derived column: age // 10 * 10'

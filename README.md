@@ -173,7 +173,7 @@ def transaction_enrichment():
     final_output = final_output.with_columns(pl.col("amount").cast(pl.Int64))
     final_output = final_output.with_columns(pl.col("high_value").cast(pl.Boolean))
     with fsspec.open("data/outputs/final_output.csv", "w") as f:
-        final_output.collect().write_csv(f)
+        final_output.collect(streaming=True).write_csv(f)
     return final_output
 
 if __name__ == "__main__":
