@@ -79,6 +79,9 @@ class Pipeline:
 
         return cls(template_dir, templates, backend, context, source_dir)
 
+    def is_remote_path(self, path: str) -> bool:
+        return path.startswith("s3://") or "://" in path
+
     def rewrite_template_paths_and_copy_data(self, source_dir: str, template_dir: str):
         input_dir = os.path.join(source_dir, "data", "inputs")
         output_dir = os.path.join(source_dir, "data", "outputs")
@@ -96,6 +99,9 @@ class Pipeline:
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
+                    if self.is_remote_path(node.path):
+                        continue
+
                     if "*" in node.path:
                         pattern = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
                         for matched_file in glob.glob(pattern):
@@ -114,6 +120,9 @@ class Pipeline:
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
+                    if self.is_remote_path(node.path):
+                        continue
+
                     fname = os.path.basename(node.path)
                     original_path = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
 
