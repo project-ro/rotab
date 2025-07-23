@@ -92,10 +92,11 @@ class Pipeline:
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.outputs:
-                    orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
-                    output_paths.add(orig_abs)
+                    if self.is_remote_path(node.path):
+                        continue
+                    abs_path = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                    output_paths.add(abs_path)
 
-        # 入力ファイルコピー
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
@@ -104,41 +105,42 @@ class Pipeline:
 
                     if "*" in node.path:
                         pattern = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
-                        for matched_file in glob.glob(pattern):
-                            fname = os.path.basename(matched_file)
-                            dst_path = os.path.join(input_dir, fname)
-                            shutil.copyfile(matched_file, dst_path)
+                        for matched in glob.glob(pattern):
+                            dst = os.path.join(input_dir, os.path.basename(matched))
+                            shutil.copyfile(matched, dst)
                     else:
-                        orig_abs = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
-                        fname = os.path.basename(node.path)
-                        dst_path = os.path.join(input_dir, fname)
+                        abs_src = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                        dst = os.path.join(input_dir, os.path.basename(node.path))
+                        if abs_src not in output_paths:
+                            shutil.copyfile(abs_src, dst)
 
-                        if orig_abs not in output_paths:
-                            shutil.copyfile(orig_abs, dst_path)
-
-        # パスの書き換え
         for template in self.templates:
             for proc in template.processes:
+
+                # inputs
                 for node in proc.inputs:
                     if self.is_remote_path(node.path):
                         continue
 
                     fname = os.path.basename(node.path)
-                    original_path = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                    abs_src = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
 
                     if "*" in node.path:
                         new_path = os.path.relpath(os.path.join(input_dir, fname), source_dir)
-                    elif original_path in output_paths:
+                    elif abs_src in output_paths:
                         new_path = os.path.relpath(os.path.join(output_dir, fname), source_dir)
                     else:
                         new_path = os.path.relpath(os.path.join(input_dir, fname), source_dir)
 
                     node.path = new_path
 
+                # outputs
                 for node in proc.outputs:
+                    if self.is_remote_path(node.path):
+                        continue
+
                     fname = os.path.basename(node.path)
-                    new_path = os.path.relpath(os.path.join(output_dir, fname), source_dir)
-                    node.path = new_path
+                    node.path = os.path.relpath(os.path.join(output_dir, fname), source_dir)
 
     def copy_custom_functions(self, source_dir: str) -> None:
         cf_dir = os.path.join(source_dir, "custom_functions")
