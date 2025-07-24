@@ -109,6 +109,10 @@ def replace(table: pl.DataFrame, columns: List[str], old: Any, new: Any) -> pl.D
     return table_copy
 
 
+def unique(df: pl.DataFrame, group_keys: list[str], sort_by: str, ascending: bool = True) -> pl.DataFrame:
+    return df.sort(group_keys + [sort_by], descending=not ascending).group_by(group_keys, maintain_order=True).first()
+
+
 TRANSFORM_NAMESPACE = {
     "normalize_dtype": normalize_dtype,
     "validate_table_schema": validate_table_schema,
@@ -122,4 +126,5 @@ TRANSFORM_NAMESPACE = {
     "concat": concat,
     "drop_na": drop_na,
     "replace": replace,
+    "unique": unique,
 }

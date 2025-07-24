@@ -2,6 +2,7 @@ import pytest
 import polars as pl
 
 from rotab.core.parse.parse import parse
+from rotab.core.operation.derive_funcs_polars import _col
 
 
 # -------------------------------
@@ -27,8 +28,8 @@ def test_parse_derive_basic():
 def test_parse_derive_with_functions(monkeypatch):
     from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
 
-    FUNC_NAMESPACE["func"] = lambda x: pl.col(x) * 10
-    FUNC_NAMESPACE["funv"] = lambda x: pl.col(x) + 100
+    FUNC_NAMESPACE["func"] = lambda x: _col(x) * 10
+    FUNC_NAMESPACE["funv"] = lambda x: _col(x) + 100
 
     derive_str = """
         new_col = func(a) + funv(b)

@@ -3,6 +3,11 @@ import ast
 from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
 
 
+import polars as pl
+import ast
+from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
+
+
 def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
     exprs = []
     lines = [line.strip() for line in derive_str.strip().splitlines() if line.strip()]
@@ -12,7 +17,19 @@ def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
             raise ValueError(f"Invalid derive expression line: {line}")
 
         target, expr_str = [part.strip() for part in line.split("=", 1)]
-        tree = ast.parse(expr_str, mode="eval")
+
+        try:
+            # 通常は式としてパース
+            tree = ast.parse(expr_str, mode="eval")
+            node = tree.body
+        except SyntaxError:
+            # 式で失敗したら文としてパース（文全体を eval ではなく exec で扱う）
+            full_stmt = f"{target} = {expr_str}"
+            tree = ast.parse(full_stmt, mode="exec")
+            stmt = tree.body[0]
+            if not isinstance(stmt, ast.Assign):
+                raise ValueError(f"Invalid assignment statement: {full_stmt}")
+            node = stmt.value
 
         def _convert(node):
             if isinstance(node, ast.Name):
@@ -83,7 +100,7 @@ def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
                         args = []
                         for arg in node.args:
                             if isinstance(arg, ast.Name):
-                                args.append(arg.id)
+                                args.append(pl.col(arg.id))
                             elif isinstance(arg, ast.Constant):
                                 args.append(arg.value)
                             elif isinstance(arg, ast.Str):  # Python <3.8
@@ -108,7 +125,7 @@ def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
             else:
                 raise ValueError(f"Unsupported node: {ast.dump(node)}")
 
-        expr = _convert(tree.body).alias(target)
+        expr = _convert(node).alias(target)
         exprs.append(expr)
 
     return exprs

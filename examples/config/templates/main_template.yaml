@@ -44,7 +44,7 @@ processes:
         mutate:
           - filter: amount > 1000
           - derive: |
-              high_value = amount > 5000
+              high_value = int(abs(amount)) > 5000
         as: filtered_trans
 
       - name: merge_transactions
@@ -56,11 +56,11 @@ processes:
         with: enriched
         mutate:
           - derive: |
-              segment = str(age_bucket) + "_" + str(log_age)
+              segment = str(age_bucket) + str(log_age)
         as: enriched_with_segment
 
       - name: groupby_segment
         with: enriched_with_segment
         transform: |
-          groupby_agg(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
+          groupby_agg_custom(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
         as: final_output

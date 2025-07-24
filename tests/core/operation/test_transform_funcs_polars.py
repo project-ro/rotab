@@ -13,6 +13,7 @@ from rotab.core.operation.transform_funcs_polars import (
     concat,
     drop_na,
     replace,
+    unique,
 )
 
 
@@ -115,3 +116,36 @@ def test_replace():
     df = pl.DataFrame({"a": ["x", "y"]})
     out = replace(df, columns=["a"], old="x", new="z")
     assert out["a"].to_list()[0] == "z"
+
+
+def test_unique_min_numeric():
+    df = pl.DataFrame(
+        {"user": ["A", "A", "B", "B", "B"], "score": [50, 30, 70, 60, 80], "info": ["x1", "x2", "x3", "x4", "x5"]}
+    )
+    out = unique(df, group_keys=["user"], sort_by="score", ascending=True)
+
+    expected = pl.DataFrame({"user": ["A", "B"], "score": [30, 60], "info": ["x2", "x4"]})
+
+    assert out.sort(by=out.columns).rows() == expected.sort(by=expected.columns).rows()
+
+
+def test_unique_max_numeric():
+    df = pl.DataFrame(
+        {"user": ["A", "A", "B", "B", "B"], "score": [50, 30, 70, 60, 80], "info": ["x1", "x2", "x3", "x4", "x5"]}
+    )
+    out = unique(df, group_keys=["user"], sort_by="score", ascending=False)
+
+    expected = pl.DataFrame({"user": ["A", "B"], "score": [50, 80], "info": ["x1", "x5"]})
+
+    assert out.sort(by=out.columns).rows() == expected.sort(by=expected.columns).rows()
+
+
+def test_unique_string_sort():
+    df = pl.DataFrame(
+        {"category": ["x", "x", "y", "y"], "value": ["banana", "apple", "cherry", "apricot"], "weight": [1, 2, 3, 4]}
+    )
+    out = unique(df, group_keys=["category"], sort_by="value", ascending=True)
+
+    expected = pl.DataFrame({"category": ["x", "y"], "value": ["apple", "apricot"], "weight": [2, 4]})
+
+    assert out.sort(by=out.columns).rows() == expected.sort(by=expected.columns).rows()

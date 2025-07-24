@@ -136,10 +136,10 @@ def setup_full_test_env(tmpdir: str, backend: str):
                 textwrap.dedent(
                     """\
                     import polars as pl
-                    from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
+                    from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE, _col
 
                     def custom_log_polars(x):
-                        return pl.col(x).log()
+                        return _col(x).log()
 
                     FUNC_NAMESPACE["custom_log_polars"] = custom_log_polars
                     """

@@ -4,6 +4,8 @@ import fsspec
 from rotab.core.parse.parse import parse
 from rotab.core.operation.derive_funcs_polars import *
 from rotab.core.operation.transform_funcs_polars import *
+from custom_functions.derive_funcs import *
+from custom_functions.transform_funcs import *
 
 
 def step_filter_users_main_transaction_enrichment(filtered_users):
@@ -22,7 +24,7 @@ def step_filter_transactions_main_transaction_enrichment(filtered_transactions):
     filtered_trans = filtered_transactions
     filtered_trans = filtered_trans.filter(parse('amount > 1000'))
     filtered_trans = filtered_trans.with_columns(parse("""
-        high_value = amount > 5000
+        high_value = int(abs(amount)) > 5000
         """))
     return filtered_trans
 
@@ -35,13 +37,13 @@ def step_merge_transactions_transaction_enrichment(filtered_users_main, filtered
 def step_derive_segment_transaction_enrichment(enriched):
     enriched_with_segment = enriched
     enriched_with_segment = enriched_with_segment.with_columns(parse("""
-        segment = str(age_bucket) + "_" + str(log_age)
+        segment = str(age_bucket) + str(log_age)
         """))
     return enriched_with_segment
 
 
 def step_groupby_segment_transaction_enrichment(enriched_with_segment):
-    final_output = groupby_agg(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
+    final_output = groupby_agg_custom(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
 
     return final_output
 
