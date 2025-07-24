@@ -30,6 +30,15 @@ from rotab.core.operation.derive_funcs_polars import (
     min,
     max,
     format_timestamp,
+    str_,
+    int_,
+    float_,
+    bool_,
+    substr,
+    left,
+    right,
+    days_since_last_birthday,
+    contains,
 )
 
 
@@ -225,3 +234,91 @@ def test_format_timestamp_cases(input_val, parse_fmt, output_format, input_tz, o
         ]
     )
     assert result["parsed"][0] == expected
+
+
+def test_str_():
+    df = pl.DataFrame({"a": [123, 456]})
+    out = df.with_columns(str_("a").alias("s"))
+    assert out["s"].dtype == pl.Utf8
+    assert out["s"].to_list() == ["123", "456"]
+
+
+def test_int_():
+    df = pl.DataFrame({"a": ["10", "20"]})
+    out = df.with_columns(int_("a").alias("i"))
+    assert out["i"].dtype == pl.Int64
+    assert out["i"].to_list() == [10, 20]
+
+
+def test_float_():
+    df = pl.DataFrame({"a": ["1.1", "2.2"]})
+    out = df.with_columns(float_("a").alias("f"))
+    assert out["f"].dtype == pl.Float64
+    assert out["f"].to_list() == [1.1, 2.2]
+
+
+def test_bool_():
+    df = pl.DataFrame({"a": [1, 0]})
+    out = df.with_columns(bool_("a").alias("b"))
+    assert out["b"].dtype == pl.Boolean
+    assert out["b"].to_list() == [True, False]
+
+
+def test_substr_ascii():
+    df = pl.DataFrame({"a": ["abcdef", "ghijkl"]})
+    out = df.with_columns(substr("a", 1, 3).alias("s"))
+    assert out["s"].to_list() == ["bcd", "hij"]
+
+
+def test_substr_japanese():
+    df = pl.DataFrame({"a": ["こんにちは世界", "ありがとう"]})
+    out = df.with_columns(substr("a", 2, 2).alias("s"))
+    assert out["s"].to_list() == ["にち", "がと"]
+
+
+def test_left_ascii():
+    df = pl.DataFrame({"a": ["abcdef", "ghijkl"]})
+    out = df.with_columns(left("a", 2).alias("l"))
+    assert out["l"].to_list() == ["ab", "gh"]
+
+
+def test_left_japanese():
+    df = pl.DataFrame({"a": ["こんにちは", "世界"]})
+    out = df.with_columns(left("a", 2).alias("l"))
+    assert out["l"].to_list() == ["こん", "世界"]
+
+
+def test_right_ascii():
+    df = pl.DataFrame({"a": ["abcdef", "ghijkl"]})
+    out = df.with_columns(right("a", 2).alias("r"))
+    assert out["r"].to_list() == ["ef", "kl"]
+
+
+def test_right_japanese():
+    df = pl.DataFrame({"a": ["こんにちは", "世界"]})
+    out = df.with_columns(right("a", 2).alias("r"))
+    assert out["r"].to_list() == ["ちは", "世界"]
+
+
+def test_days_since_last_birthday_before():
+    df = pl.DataFrame({"bday": ["1980-10-10"]})
+    out = df.with_columns(days_since_last_birthday("bday", "2020-10-01").alias("days"))
+    assert out["days"].to_list() == [356]
+
+
+def test_days_since_last_birthday_after():
+    df = pl.DataFrame({"bday": ["1980-10-10"]})
+    out = df.with_columns(days_since_last_birthday("bday", "2020-10-15").alias("days"))
+    assert out["days"].to_list() == [5]
+
+
+def test_contains_ascii():
+    df = pl.DataFrame({"a": ["apple", "banana", "grape"]})
+    out = df.with_columns(contains("a", "ap").alias("c"))
+    assert out["c"].to_list() == [True, False, True]
+
+
+def test_contains_japanese():
+    df = pl.DataFrame({"a": ["アップル", "バナナ", "グレープ"]})
+    out = df.with_columns(contains("a", "プ").alias("c"))
+    assert out["c"].to_list() == [True, False, True]

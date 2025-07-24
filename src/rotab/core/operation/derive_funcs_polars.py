@@ -1,5 +1,6 @@
 import polars as pl
 from typing import Union
+from datetime import datetime
 
 
 def log(col: str, base: float = 10) -> pl.Expr:
@@ -171,6 +172,59 @@ def format_timestamp(
     return final_expr.dt.strftime(output_format)
 
 
+def str_(x: str) -> pl.Expr:
+    return pl.col(x).cast(pl.Utf8)
+
+
+def int_(x: str) -> pl.Expr:
+    return pl.col(x).cast(pl.Int64)
+
+
+def float_(x: str) -> pl.Expr:
+    return pl.col(x).cast(pl.Float64)
+
+
+def bool_(x: str) -> pl.Expr:
+    return pl.col(x).cast(pl.Boolean)
+
+
+def substr(col: str, start: int, length: int) -> pl.Expr:
+    return pl.col(col).str.slice(start, length)
+
+
+def left(col: str, n: int) -> pl.Expr:
+    return pl.col(col).str.slice(0, n)
+
+
+def right(col: str, n: int) -> pl.Expr:
+    return pl.col(col).str.slice(pl.col(col).str.len_chars() - n, n)
+
+
+def days_since_last_birthday(birth_col: str, ref_date: str = None) -> pl.Expr:
+    if ref_date is None:
+        ref_date = datetime.today().strftime("%Y-%m-%d")
+
+    ref_dt = datetime.strptime(ref_date, "%Y-%m-%d")
+    ref_year = ref_dt.year
+
+    ref_expr = pl.lit(ref_date).str.strptime(pl.Date, "%Y-%m-%d")
+
+    this_year_birthday_str = pl.col(birth_col).str.strptime(pl.Date, "%Y-%m-%d").dt.strftime(f"{ref_year}-%m-%d")
+    this_year_birthday = this_year_birthday_str.str.strptime(pl.Date, "%Y-%m-%d")
+
+    last_birthday = (
+        pl.when(this_year_birthday > ref_expr)
+        .then(this_year_birthday - pl.duration(days=365))
+        .otherwise(this_year_birthday)
+    )
+
+    return (ref_expr - last_birthday).dt.total_days()
+
+
+def contains(col: str, substring: str) -> pl.Expr:
+    return pl.col(col).str.contains(substring)
+
+
 FUNC_NAMESPACE = {
     "log": log,
     "log1p": log1p,
@@ -199,4 +253,13 @@ FUNC_NAMESPACE = {
     "max": max,
     "len": len,
     "format_timestamp": format_timestamp,
+    "str": str_,
+    "int": int_,
+    "float": float_,
+    "bool": bool_,
+    "substr": substr,
+    "left": left,
+    "right": right,
+    "days_since_last_birthday": days_since_last_birthday,
+    "contains": contains,
 }

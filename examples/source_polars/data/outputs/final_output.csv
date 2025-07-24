@@ -1,2 +1,2 @@
-user_id,log_age,amount,high_value
-100,1.3979400086720375,5000,false
+segment,amount,high_value
+20_1.3979400086720375,5000.0,0

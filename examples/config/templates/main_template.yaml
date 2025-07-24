@@ -8,13 +8,13 @@ processes:
   - name: transaction_enrichment
     description: |
       This process enriches user transactions by filtering users based on age and
-      transactions based on amount, then merging the two datasets.
+      transactions based on amount, then merging the two datasets and aggregating by segment.
     io:
       inputs:
         - name: filtered_users
           io_type: csv
-          path: ../../source/outputs/filtered_users.csv # relative to this file path
-          schema: filtered_users # optional, corresponds to the schema in <schema_dir>/user.yaml
+          path: ../../source/outputs/filtered_users.csv
+          schema: filtered_users
 
         - name: filtered_transactions
           io_type: csv
@@ -43,6 +43,8 @@ processes:
         with: filtered_transactions
         mutate:
           - filter: amount > 1000
+          - derive: |
+              high_value = amount > 5000
         as: filtered_trans
 
       - name: merge_transactions
@@ -50,10 +52,15 @@ processes:
         transform: merge(left=filtered_users_main, right=filtered_trans, on='user_id')
         as: enriched
 
-      - name: enrich_transactions
+      - name: derive_segment
         with: enriched
         mutate:
           - derive: |
-              high_value = amount > 10000
-          - select: ${params.enrich_transactions.columns}
+              segment = str(age_bucket) + "_" + str(log_age)
+        as: enriched_with_segment
+
+      - name: groupby_segment
+        with: enriched_with_segment
+        transform: |
+          groupby_agg(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
         as: final_output

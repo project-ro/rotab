@@ -1,15 +1,12 @@
 name: final_output
-description: Enriched user and transaction data
+description: Aggregated transaction metrics by user segment
 columns:
-  - name: user_id
+  - name: segment
     dtype: str
-    description: Unique identifier for each user
-  - name: log_age
-    dtype: float
-    description: Logarithm of the user's age
+    description: Combined bucketed age and log-age identifier
   - name: amount
-    dtype: int
-    description: Amount of the transaction
+    dtype: float
+    description: Average amount of transactions per segment
   - name: high_value
-    dtype: bool
-    description: Flag indicating if the transaction amount is greater than 10000
+    dtype: int
+    description: Total count of high-value transactions per segment

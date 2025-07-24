@@ -31,14 +31,16 @@ subgraph T_main_template ["main_template"]
     S_main_template__filter_users_main(["[S]filter_users_main"])
     S_main_template__filter_transactions_main(["[S]filter_transactions_main"])
     S_main_template__merge_transactions(["[S]merge_transactions"])
-    S_main_template__enrich_transactions(["[S]enrich_transactions"])
+    S_main_template__derive_segment(["[S]derive_segment"])
+    S_main_template__groupby_segment(["[S]groupby_segment"])
     O_main_template__final_output(["[O]final_output"])
     I_main_template__filtered_users --> S_main_template__filter_users_main
     I_main_template__filtered_transactions --> S_main_template__filter_transactions_main
     S_main_template__filter_users_main --> S_main_template__merge_transactions
     S_main_template__filter_transactions_main --> S_main_template__merge_transactions
-    S_main_template__merge_transactions --> S_main_template__enrich_transactions
-    S_main_template__enrich_transactions --> O_main_template__final_output
+    S_main_template__merge_transactions --> S_main_template__derive_segment
+    S_main_template__derive_segment --> S_main_template__groupby_segment
+    S_main_template__groupby_segment --> O_main_template__final_output
   end
 end
 %% Template Dependencies
