@@ -161,7 +161,9 @@ def days_since_last_birthday(x: ExprOrStr, ref_date: Union[str, pl.Expr, None] =
 
     ref_year = ref_expr.dt.year()
     this_year_birthday_str = birthday.dt.strftime("%m-%d")
-    this_year_birthday = (ref_year.cast(str) + "-" + this_year_birthday_str).str.strptime(pl.Date, "%Y-%m-%d")
+    this_year_birthday = pl.concat_str([ref_year.cast(str), pl.lit("-"), this_year_birthday_str]).str.strptime(
+        pl.Date, "%Y-%m-%d"
+    )
 
     last_birthday = (
         pl.when(this_year_birthday > ref_expr)
