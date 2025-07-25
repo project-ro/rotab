@@ -17,6 +17,7 @@ def step_filter_users_main_transaction_enrichment(filtered_users):
 def step_filter_transactions_main_transaction_enrichment(filtered_transactions):
     filtered_trans = filtered_transactions.copy()
     filtered_trans = filtered_trans.query('amount > 1000').copy()
+    filtered_trans["high_value"] = filtered_trans.apply(lambda row: row["int"](row["abs"](row["amount"])) > 5000, axis=1)
     return filtered_trans
 
 
@@ -25,27 +26,32 @@ def step_merge_transactions_transaction_enrichment(filtered_users_main, filtered
     return enriched
 
 
-def step_enrich_transactions_transaction_enrichment(enriched):
-    final_output = enriched.copy()
-    final_output["high_value"] = final_output.apply(lambda row: row["amount"] > 10000, axis=1)
-    final_output = final_output[["user_id", "log_age", "amount", "high_value"]]
+def step_derive_segment_transaction_enrichment(enriched):
+    enriched_with_segment = enriched.copy()
+    enriched_with_segment["segment"] = enriched_with_segment.apply(lambda row: row["str"](row["age_bucket"]) + row["str"](row["log_age"]), axis=1)
+    return enriched_with_segment
+
+
+def step_groupby_segment_transaction_enrichment(enriched_with_segment):
+    final_output = groupby_agg(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
+
     return final_output
 
 
 def transaction_enrichment():
     """This process enriches user transactions by filtering users based on age and
-    transactions based on amount, then merging the two datasets."""
+    transactions based on amount, then merging the two datasets and aggregating by segment."""
     filtered_users = pd.read_csv("data/outputs/filtered_users.csv", dtype={'user_id': 'str', 'age': 'int', 'age_group': 'int'})
     filtered_transactions = pd.read_csv("data/outputs/filtered_transactions.csv", dtype={'user_id': 'str', 'amount': 'int', 'is_large': 'bool'})
     filtered_users_main = step_filter_users_main_transaction_enrichment(filtered_users)
     filtered_trans = step_filter_transactions_main_transaction_enrichment(filtered_transactions)
     enriched = step_merge_transactions_transaction_enrichment(filtered_users_main, filtered_trans)
-    final_output = step_enrich_transactions_transaction_enrichment(enriched)
-    final_output["user_id"] = final_output["user_id"].astype("str")
-    final_output["log_age"] = final_output["log_age"].astype("float")
-    final_output["amount"] = final_output["amount"].astype("int")
-    final_output["high_value"] = final_output["high_value"].astype("bool")
-    final_output.to_csv("data/outputs/final_output.csv", index=False, columns=['user_id', 'log_age', 'amount', 'high_value'])
+    enriched_with_segment = step_derive_segment_transaction_enrichment(enriched)
+    final_output = step_groupby_segment_transaction_enrichment(enriched_with_segment)
+    final_output["segment"] = final_output["segment"].astype("str")
+    final_output["amount"] = final_output["amount"].astype("float")
+    final_output["high_value"] = final_output["high_value"].astype("int")
+    final_output.to_csv("data/outputs/final_output.csv", index=False, columns=['segment', 'amount', 'high_value'])
     return final_output
 
 

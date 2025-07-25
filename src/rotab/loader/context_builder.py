@@ -1,3 +1,4 @@
+import os
 import importlib.util
 import importlib
 from typing import List, Optional
@@ -6,6 +7,7 @@ import uuid
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from rotab.loader.schema_manager import SchemaManager
+from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
 
 
 class ContextBuilder:
@@ -14,6 +16,18 @@ class ContextBuilder:
         self.transform_func_path = transform_func_path
         self.schema_manager = schema_manager
         self.backend = backend
+
+    def _register_user_defined_functions(self, module_path: str):
+
+        module_name = os.path.splitext(os.path.basename(module_path))[0]
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        for k in dir(module):
+            v = getattr(module, k)
+            if callable(v) and not k.startswith("_"):
+                FUNC_NAMESPACE[k] = v
 
     def _load_module_functions(self, module_name: str) -> dict:
         module = importlib.import_module(module_name)
@@ -71,6 +85,10 @@ class ContextBuilder:
         return merged_scope
 
     def build(self, templates: List[TemplateNode]) -> ValidationContext:
+
+        if self.derive_func_path is not None:
+            self._register_user_defined_functions(self.derive_func_path)
+
         eval_scope = self._get_eval_scope()
 
         available_vars = set()

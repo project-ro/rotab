@@ -43,7 +43,7 @@ def step_derive_segment_transaction_enrichment(enriched):
 
 
 def step_groupby_segment_transaction_enrichment(enriched_with_segment):
-    final_output = groupby_agg_custom(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
+    final_output = groupby_agg(table=enriched_with_segment, by="segment", aggregations={"amount": "mean", "high_value": "sum"})
 
     return final_output
 
