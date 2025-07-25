@@ -145,17 +145,23 @@ def contains(x: ExprOrStr, substring: str) -> pl.Expr:
     return _col(x).str.contains(substring)
 
 
-def days_since_last_birthday(x: ExprOrStr, ref_date: str = None) -> pl.Expr:
+def days_since_last_birthday(x: ExprOrStr, ref_date: Union[str, pl.Expr, None] = None) -> pl.Expr:
+    birthday = _col(x).str.strptime(pl.Date, "%Y-%m-%d")
+
     if ref_date is None:
-        ref_date = datetime.today().strftime("%Y-%m-%d")
+        ref_expr = pl.lit(datetime.today().strftime("%Y-%m-%d")).str.strptime(pl.Date, "%Y-%m-%d")
+    elif isinstance(ref_date, str):
+        try:
+            datetime.strptime(ref_date, "%Y-%m-%d")
+            ref_expr = pl.lit(ref_date).str.strptime(pl.Date, "%Y-%m-%d")
+        except ValueError:
+            ref_expr = _col(ref_date).str.strptime(pl.Date, "%Y-%m-%d")
+    else:
+        ref_expr = ref_date
 
-    ref_dt = datetime.strptime(ref_date, "%Y-%m-%d")
-    ref_year = ref_dt.year
-
-    ref_expr = pl.lit(ref_date).str.strptime(pl.Date, "%Y-%m-%d")
-
-    this_year_birthday_str = _col(x).str.strptime(pl.Date, "%Y-%m-%d").dt.strftime(f"{ref_year}-%m-%d")
-    this_year_birthday = this_year_birthday_str.str.strptime(pl.Date, "%Y-%m-%d")
+    ref_year = ref_expr.dt.year()
+    this_year_birthday_str = birthday.dt.strftime("%m-%d")
+    this_year_birthday = (ref_year.cast(str) + "-" + this_year_birthday_str).str.strptime(pl.Date, "%Y-%m-%d")
 
     last_birthday = (
         pl.when(this_year_birthday > ref_expr)

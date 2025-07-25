@@ -312,6 +312,20 @@ def test_days_since_last_birthday_after():
     assert out["days"].to_list() == [5]
 
 
+def test_days_since_last_birthday_column_before():
+    df = pl.DataFrame({"bday": ["1980-10-10"], "ref": ["2020-10-01"]})
+    df = df.with_columns(pl.col("ref").cast(str))
+    out = df.with_columns(days_since_last_birthday("bday", "ref").alias("days"))
+    assert out["days"].to_list() == [356]
+
+
+def test_days_since_last_birthday_column_after():
+    df = pl.DataFrame({"bday": ["1980-10-10"], "ref": ["2020-10-15"]})
+    df = df.with_columns(pl.col("ref").cast(str))
+    out = df.with_columns(days_since_last_birthday("bday", "ref").alias("days"))
+    assert out["days"].to_list() == [5]
+
+
 def test_contains_ascii():
     df = pl.DataFrame({"a": ["apple", "banana", "grape"]})
     out = df.with_columns(contains("a", "ap").alias("c"))
