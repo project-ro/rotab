@@ -34,7 +34,7 @@ processes:
           - filter: age > ${params.min_age}
           - derive: |
               log_age = log(age)
-              age_bucket = age // 10 * 10
+              age_bucket = 10
           - select: [user_id, log_age, age_bucket]
         as: filtered_users_main
         when: ${params.test}

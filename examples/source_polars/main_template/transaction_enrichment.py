@@ -14,7 +14,7 @@ def step_filter_users_main_transaction_enrichment(filtered_users):
         filtered_users_main = filtered_users_main.filter(parse('age > 18'))
         filtered_users_main = filtered_users_main.with_columns(parse("""
             log_age = log(age)
-            age_bucket = age // 10 * 10
+            age_bucket = 10
             """))
         filtered_users_main = filtered_users_main.select(['user_id', 'log_age', 'age_bucket'])
     return filtered_users_main

@@ -13,7 +13,7 @@ def parse_derive_expr(derive_str: str) -> list[pl.Expr]:
         if isinstance(node, ast.Name):
             return pl.col(node.id)
         elif isinstance(node, ast.Constant):
-            return node.value
+            return pl.lit(node.value)
         elif isinstance(node, ast.BinOp):
             left = _convert(node.left)
             right = _convert(node.right)
