@@ -46,7 +46,16 @@ def sort_by(table: pl.DataFrame, column: str, ascending: bool = True) -> pl.Data
     return table.sort(by=column, descending=not ascending)
 
 
-def groupby_agg(table: pl.DataFrame, by: str, aggregations: Dict[str, str]) -> pl.DataFrame:
+from typing import Dict, List, Union
+
+import polars as pl
+
+
+def groupby_agg(
+    table: pl.DataFrame,
+    by: Union[str, List[str]],
+    aggregations: Dict[str, str],
+) -> pl.DataFrame:
     aggs = [getattr(pl.col(col), agg)().alias(col) for col, agg in aggregations.items()]
     return table.group_by(by).agg(aggs)
 

@@ -1,5 +1,6 @@
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 from rotab.core.operation.transform_funcs_polars import (
     normalize_dtype,
     validate_table_schema,
@@ -47,6 +48,32 @@ def test_groupby_agg():
     df = pl.DataFrame({"group": ["x", "x", "y"], "val": [1, 2, 3]})
     out = groupby_agg(df, by="group", aggregations={"val": "sum"})
     assert out.filter(pl.col("group") == "x")["val"].to_list()[0] == 3
+
+
+def test_groupby_agg_multiple_keys():
+    df = pl.DataFrame(
+        {
+            "cat": ["A", "A", "B", "B", "A"],
+            "sub": [1, 1, 1, 2, 2],
+            "val": [10, 20, 30, 40, 50],
+        }
+    )
+
+    result = groupby_agg(
+        table=df,
+        by=["cat", "sub"],
+        aggregations={"val": "sum"},
+    ).sort(["cat", "sub"])
+
+    expected = pl.DataFrame(
+        {
+            "cat": ["A", "A", "B", "B"],
+            "sub": [1, 2, 1, 2],
+            "val": [30, 50, 30, 40],
+        }
+    ).sort(["cat", "sub"])
+
+    assert_frame_equal(result, expected)
 
 
 def test_drop_duplicates():
