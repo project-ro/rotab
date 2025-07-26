@@ -20,10 +20,12 @@ from rotab.core.operation.transform_funcs_polars import (
     drop_na,
     replace,
     unique,
-    summarize_columns,
+    describe,
     get_categorical_counts_table,
     plot_categorical_bar_chart,
     plot_numerical_distribution,
+    plot_timeseries_histogram,
+    profile,
 )
 
 
@@ -187,7 +189,7 @@ def test_unique_string_sort():
     assert out.sort(by=out.columns).rows() == expected.sort(by=expected.columns).rows()
 
 
-def test_summarize_columns_all_string_full_metrics():
+def test_describe():
     df = pl.DataFrame(
         {
             "age": ["10", "20", "30", "0.0", None],  # force float
@@ -196,7 +198,7 @@ def test_summarize_columns_all_string_full_metrics():
         }
     )
 
-    summary = summarize_columns(df)
+    summary = describe(df)
 
     # --- float column ---
     row = summary.filter(pl.col("column") == "age").row(0)
@@ -327,3 +329,67 @@ def test_plot_numerical_distribution_saves_html_file():
     assert os.path.exists(
         expected_output_filename
     ), f"Error: The chart file '{expected_output_filename}' was not created."
+
+
+def test_plot_timeseries_histogram_saves_html_file():
+    # Sample data for testing (strings will be converted to datetime by the function)
+    sample_dates = np.array(
+        [
+            "2023-01-01",
+            "2023-01-05",
+            "2023-01-10",
+            "2023-01-15",
+            "2023-01-20",
+            "2023-02-01",
+            "2023-02-05",
+            "2023-02-10",
+            "2023-02-15",
+            "2023-02-20",
+            "2023-03-01",
+            "2023-03-05",
+            "2023-03-10",
+        ]
+    )
+    sample_column_name = "EventDates"
+    expected_output_filename = f"./samples/{sample_column_name}_timeseries_histogram.html"
+
+    # Clean up any previously created file before running the test
+    if os.path.exists(expected_output_filename):
+        os.remove(expected_output_filename)
+
+    # Call the function to generate the chart
+    plot_timeseries_histogram(sample_dates, sample_column_name)
+
+    # Assert that the HTML file was created successfully
+    assert os.path.exists(
+        expected_output_filename
+    ), f"Error: The chart file '{expected_output_filename}' was not created."
+
+
+def test_profile():
+    sample_pl_df = pl.DataFrame(
+        {
+            "商品カテゴリ": ["野菜", "果物", "肉", "野菜", "果物", "魚", "野菜", "肉", "果物"],
+            "売上高": np.random.normal(loc=10000, scale=3000, size=9).astype(int),
+            "顧客満足度": np.random.randint(1, 6, size=9),
+            "購入日時": [
+                "2023-10-01 10:00",
+                "2023-10-05 14:30",
+                "2023-10-08 11:00",
+                "2023-10-10 16:00",
+                "2023-10-12 09:00",
+                "2023-10-15 18:00",
+                "2023-11-01 13:00",
+                "2023-11-05 10:00",
+                "2023-11-08 17:00",
+            ],
+            "店舗ID": ["A", "B", "A", "C", "B", "A", "C", "B", "A"],
+            "顧客年齢": np.random.normal(loc=35, scale=10, size=9).astype(int),
+        }
+    )
+
+    output_file = "./samples/test_combined_report_valid_data.html"
+    profile(sample_pl_df, output_file)
+
+    assert os.path.exists(output_file)
+    assert os.path.getsize(output_file) > 0

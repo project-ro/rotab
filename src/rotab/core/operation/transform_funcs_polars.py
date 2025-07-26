@@ -2,6 +2,7 @@ import polars as pl
 from typing import List, Dict, Any
 from datetime import date
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -180,7 +181,7 @@ def _get_item_or_scalar(polars_result: Any) -> Any:
     return polars_result  # Already a scalar
 
 
-def summarize_columns(df: pl.DataFrame) -> pl.DataFrame:
+def describe(df: pl.DataFrame) -> pl.DataFrame:
     summaries = []
 
     full_summary_keys = {
@@ -490,5 +491,251 @@ def plot_numerical_distribution(data: np.ndarray, column_name: str, output_filen
         fig.write_html(output_filename, auto_open=False)
         print(f"Numerical distribution chart for '{column_name}' saved as '{output_filename}'.")
         print(f"Please open '{output_filename}' in your web browser to view the chart.")
+    except Exception as e:
+        print(f"An unexpected error occurred while saving the HTML file: {e}")
+
+
+def plot_timeseries_histogram(dates: np.ndarray, column_name: str):
+    # Ensure dates are in datetime format for proper Plotly handling
+    # Convert various input types to datetime, handling potential errors
+    try:
+        # Attempt to convert to pandas Series of datetime, then to numpy array of datetimes
+        # This handles datetime objects, strings, timestamps etc.
+        processed_dates = pd.to_datetime(dates).to_numpy()
+    except Exception as e:
+        print(
+            f"Error: Could not convert input 'dates' to datetime format. Please ensure data is convertible. Error: {e}"
+        )
+        return
+
+    # Check for empty data after potential conversion
+    if processed_dates.size == 0:
+        print(f"Warning: No valid date data available for column '{column_name}' to create a time-series histogram.")
+        return
+
+    # Create histogram trace
+    # Plotly automatically handles binning for date axes
+    fig = go.Figure(data=[go.Histogram(x=processed_dates, marker_color="steelblue")])
+
+    # Customize layout for a time-series histogram
+    fig.update_layout(
+        title={
+            "text": f"Time-Series Histogram of {column_name}",
+            "font_size": 24,
+            "x": 0.5,  # Center the title
+            "xanchor": "center",
+        },
+        xaxis_title_text="Date",
+        yaxis_title_text="Frequency",
+        xaxis=dict(type="date", tickfont_size=16, title_font_size=18),  # Ensure x-axis is treated as a date axis
+        yaxis=dict(tickfont_size=16, title_font_size=18),
+        height=600,  # Height of the figure
+        width=1000,  # Width of the figure
+        bargap=0.1,  # Gap between bars for better visualization
+        showlegend=False,
+    )
+
+    # Define output directory and ensure it exists
+    output_filename = f"./samples/{column_name}_timeseries_histogram.html"
+
+    try:
+        fig.write_html(output_filename, auto_open=False)
+        print(f"Time-series histogram for '{column_name}' saved as '{output_filename}'.")
+        print(f"Please open '{output_filename}' in your web browser to view the chart.")
+    except Exception as e:
+        print(f"An unexpected error occurred while saving the HTML file: {e}")
+
+
+def profile(  # Renamed function to profile
+    df: pl.DataFrame,
+    output_filename: str = "./samples/all_columns_charts.html",
+    date_format: str = "%Y-%m-%d %H:%M",  # Added date_format argument
+):
+    if df.is_empty():
+        print("Warning: Input DataFrame is empty. No charts will be generated.")
+        return
+
+    plot_info = []
+    for col_name in df.columns:
+        series = df.get_column(col_name)
+        non_null_series = series.drop_nulls()
+
+        if non_null_series.is_empty():
+            print(
+                f"Warning: Column '{col_name}' is empty after dropping nulls. Skipping chart generation for this column."
+            )
+            continue
+
+        # --- START: Modified logic to handle string dates ---
+        is_handled = False
+        if non_null_series.dtype == pl.String:
+            # Attempt to parse string as datetime with the specified format.
+            parsed_datetime_series = non_null_series.str.to_datetime(format=date_format, strict=False)
+
+            # Check if it successfully parsed into a datetime type AND has non-null datetime values
+            if (
+                parsed_datetime_series.dtype == pl.Datetime and parsed_datetime_series.drop_nulls().len() > 0
+            ):  # Changed .is_datetime() to == pl.Datetime
+                plot_info.append(
+                    {
+                        "name": col_name,
+                        "type": "datetime",
+                        "rows": 1,
+                        "data": parsed_datetime_series.drop_nulls().to_numpy(),
+                    }
+                )
+                is_handled = True  # Mark as handled and move to next column
+
+        if is_handled:
+            continue
+        # --- END: Modified logic to handle string dates ---
+
+        if non_null_series.dtype.is_numeric():
+            plot_info.append({"name": col_name, "type": "numerical", "rows": 2, "data": non_null_series.to_numpy()})
+        elif non_null_series.dtype == pl.Datetime:  # Changed .is_datetime() to == pl.Datetime
+            plot_info.append({"name": col_name, "type": "datetime", "rows": 1, "data": non_null_series.to_numpy()})
+        elif (
+            non_null_series.dtype == pl.String or non_null_series.dtype == pl.Categorical
+        ):  # Using direct comparison for string/categorical
+            counts_pl_df = non_null_series.value_counts()
+            category_col_name = col_name
+            count_col_name = "count"
+
+            sorted_counts_pl_df = counts_pl_df.sort([count_col_name, category_col_name], descending=[True, False])
+
+            sorted_categories = sorted_counts_pl_df[category_col_name].to_numpy()
+            sorted_counts = sorted_counts_pl_df[count_col_name].to_numpy()
+
+            plot_info.append(
+                {
+                    "name": col_name,
+                    "type": "categorical",
+                    "rows": 1,
+                    "data": {"categories": sorted_categories, "counts": sorted_counts},
+                }
+            )
+        else:
+            print(
+                f"Warning: Column '{col_name}' has an unhandled data type ({non_null_series.dtype}). Skipping chart generation."
+            )
+            continue
+
+    if not plot_info:
+        print("No suitable columns found for plotting. No chart will be generated.")
+        return
+
+    total_rows = sum(item["rows"] for item in plot_info)
+    subplot_titles = []
+    for item in plot_info:
+        if item["type"] == "numerical":
+            subplot_titles.append(f"Histogram of {item['name']}")
+            subplot_titles.append(f"Boxplot of {item['name']}")
+        elif item["type"] == "categorical":
+            subplot_titles.append(f"Frequency of {item['name']}")
+        elif item["type"] == "datetime":
+            subplot_titles.append(f"Time-Series Histogram of {item['name']}")
+
+    fig = make_subplots(
+        rows=total_rows,
+        cols=1,
+        shared_xaxes=False,  # Shared_xaxes is controlled per-plot below for numerical type
+        vertical_spacing=0.03,
+        subplot_titles=subplot_titles,
+    )
+
+    current_row = 1
+    for item in plot_info:
+        col_name = item["name"]
+        col_type = item["type"]
+
+        if col_type == "categorical":
+            sorted_categories = item["data"]["categories"]
+            sorted_counts = item["data"]["counts"]
+
+            fig.add_trace(
+                go.Bar(y=sorted_categories, x=sorted_counts, orientation="h", marker_color="steelblue", name=col_name),
+                row=current_row,
+                col=1,
+            )
+            fig.update_xaxes(title_text="Count", title_font_size=18, tickfont_size=16, row=current_row, col=1)
+            fig.update_yaxes(
+                title_text="Category", title_font_size=18, tickfont_size=16, automargin=True, row=current_row, col=1
+            )
+            current_row += 1
+
+        elif col_type == "numerical":
+            col_data = item["data"]
+
+            # Calculate common x-axis range for histogram and boxplot for alignment
+            min_val = np.min(col_data)
+            max_val = np.max(col_data)
+            # Add a small padding to the range for better visualization
+            x_range = [min_val - (max_val - min_val) * 0.05, max_val + (max_val - min_val) * 0.05]
+
+            fig.add_trace(
+                go.Histogram(
+                    x=col_data,
+                    name=col_name,
+                    marker_color="steelblue",
+                    xbins=dict(size=None),
+                ),
+                row=current_row,
+                col=1,
+            )
+            fig.update_yaxes(title_text="Frequency", title_font_size=18, tickfont_size=16, row=current_row, col=1)
+            # Apply the calculated common x_range
+            fig.update_xaxes(
+                title_text="Value", title_font_size=18, tickfont_size=16, range=x_range, row=current_row, col=1
+            )
+
+            current_row += 1
+
+            fig.add_trace(
+                go.Box(
+                    x=col_data,
+                    name=col_name,
+                    marker_color="steelblue",
+                    boxpoints="outliers",
+                    jitter=0.3,
+                    pointpos=-1.8,
+                    line_width=2,
+                    orientation="h",
+                ),
+                row=current_row,
+                col=1,
+            )
+            fig.update_yaxes(visible=False, row=current_row, col=1)
+            # Apply the same common x_range to the boxplot's x-axis
+            fig.update_xaxes(
+                title_text="Value", title_font_size=18, tickfont_size=16, range=x_range, row=current_row, col=1
+            )
+            current_row += 1
+
+        elif col_type == "datetime":
+            col_data = item["data"]
+            fig.add_trace(go.Histogram(x=col_data, name=col_name, marker_color="steelblue"), row=current_row, col=1)
+            fig.update_xaxes(
+                title_text="Date", title_font_size=18, tickfont_size=16, type="date", row=current_row, col=1
+            )
+            fig.update_yaxes(title_text="Frequency", title_font_size=18, tickfont_size=16, row=current_row, col=1)
+            current_row += 1
+
+    fig.update_layout(
+        title={
+            "text": "Comprehensive Data Distribution Analysis",
+            "font_size": 28,
+            "x": 0.5,
+            "xanchor": "center",
+        },
+        height=400 * total_rows,
+        width=1200,
+        showlegend=False,
+        margin=dict(t=100, b=50, l=50, r=50),
+    )
+
+    try:
+        fig.write_html(output_filename, auto_open=False)
+        print(f"All charts saved to: '{output_filename}'.")
+        print(f"Please open '{output_filename}' in your web browser to view the combined report.")
     except Exception as e:
         print(f"An unexpected error occurred while saving the HTML file: {e}")
