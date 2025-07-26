@@ -1,7 +1,6 @@
 import os
 import numpy as np
 from datetime import date
-
 from math import isclose
 import polars as pl
 import pytest
@@ -26,6 +25,7 @@ from rotab.core.operation.transform_funcs_polars import (
     plot_numerical_distribution,
     plot_timeseries_histogram,
     profile,
+    profile_bivariate,
 )
 
 
@@ -392,4 +392,57 @@ def test_profile():
     profile(sample_pl_df, output_file)
 
     assert os.path.exists(output_file)
+    assert os.path.getsize(output_file) > 0
+
+
+def test_profile_bivariate_valid_data():
+    sample_pl_df = pl.DataFrame(
+        {
+            "商品カテゴリ": ["野菜", "果物", "肉", "野菜", "果物", "魚", "野菜", "肉", "果物", "野菜"],
+            "売上高": np.random.normal(loc=10000, scale=3000, size=10).astype(int),
+            "顧客満足度": np.random.randint(1, 6, size=10),
+            "購入日時": [
+                "2023-10-01 10:00",
+                "2023-10-05 14:30",
+                "2023-10-08 11:00",
+                "2023-10-10 16:00",
+                "2023-10-12 09:00",
+                "2023-10-15 18:00",
+                "2023-11-01 13:00",
+                "2023-11-05 10:00",
+                "2023-11-08 17:00",
+                "2023-11-10 10:00",
+            ],
+            "店舗ID": ["A", "B", "A", "C", "B", "A", "C", "B", "A", "A"],
+            "顧客年齢": np.random.normal(loc=35, scale=10, size=10).astype(int),
+            "イベント日": [
+                "2023-10-02 11:00",
+                "2023-10-06 15:00",
+                "2023-10-09 12:00",
+                "2023-10-11 17:00",
+                "2023-10-13 10:00",
+                "2023-10-16 19:00",
+                "2023-11-02 14:00",
+                "2023-11-06 11:00",
+                "2023-11-09 18:00",
+                "2023-11-11 11:00",
+            ],
+        }
+    )
+
+    column_pairs = [
+        ("売上高", "顧客年齢"),  # Numerical x Numerical
+        ("売上高", "商品カテゴリ"),  # Numerical x Categorical
+        ("商品カテゴリ", "店舗ID"),  # Categorical x Categorical
+        ("購入日時", "売上高"),  # Datetime x Numerical
+        ("購入日時", "商品カテゴリ"),  # Datetime x Categorical
+        ("購入日時", "イベント日"),  # Datetime x Datetime
+        ("店舗ID", "商品カテゴリ"),  # Another Categorical x Categorical
+    ]
+
+    output_file = "./samples/bivariate_report_valid_data.html"
+    profile_bivariate(sample_pl_df, column_pairs, output_file, date_format="%Y-%m-%d %H:%M")
+
+    assert os.path.exists(output_file)
+    # Check if the file is not empty
     assert os.path.getsize(output_file) > 0

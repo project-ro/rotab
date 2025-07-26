@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from typing import Tuple
 
 
 def normalize_dtype(dtype: str):
@@ -737,5 +738,352 @@ def profile(  # Renamed function to profile
         fig.write_html(output_filename, auto_open=False)
         print(f"All charts saved to: '{output_filename}'.")
         print(f"Please open '{output_filename}' in your web browser to view the combined report.")
+    except Exception as e:
+        print(f"An unexpected error occurred while saving the HTML file: {e}")
+
+
+def profile_bivariate(
+    df: pl.DataFrame,
+    column_pairs: List[Tuple[str, str]],  # List of tuples, e.g., [("col1", "col2"), ("col3", "col4")]
+    output_filename: str = "./samples/bivariate_report.html",
+    date_format: str = "%Y-%m-%d %H:%M",  # Format for parsing string dates
+):
+    if df.is_empty():
+        print("Warning: Input DataFrame is empty. No bivariate charts will be generated.")
+        return
+
+    plots_to_add = []  # Stores actual Plotly trace objects
+    subplot_titles = []  # Stores titles for each subplot
+
+    # --- Step 1: Pre-process string columns that might be dates ---
+    # Create a cloned DataFrame where string columns that successfully parse as dates are converted to Datetime.
+    processed_df = df.clone()
+    for col_name in df.columns:
+        series = df.get_column(col_name)
+        if series.dtype == pl.String:
+            try:
+                # Attempt to parse string as datetime with the specified format.
+                parsed_datetime_series = series.str.to_datetime(format=date_format, strict=False)
+                # If conversion is successful and has non-null datetime values, cast the column in the cloned df.
+                # drop_nulls().len() > 0 ensures there are actual valid datetimes, not just all nulls from failed parse.
+                if parsed_datetime_series.dtype == pl.Datetime and parsed_datetime_series.drop_nulls().len() > 0:
+                    processed_df = processed_df.with_columns(parsed_datetime_series.alias(col_name))
+            except Exception:
+                # If parsing fails or is not a date string, keep it as String/Categorical.
+                pass
+
+    # --- Step 2: Determine plot type and prepare traces for each pair ---
+    for col1_name, col2_name in column_pairs:
+        if col1_name not in processed_df.columns or col2_name not in processed_df.columns:
+            print(f"Warning: One or both columns '{col1_name}', '{col2_name}' not found in DataFrame. Skipping pair.")
+            continue
+
+        s1 = processed_df.get_column(col1_name)
+        s2 = processed_df.get_column(col2_name)
+
+        # Ensure non-empty after dropping nulls for both series
+        # Drop rows where EITHER column has a null value for the pair-wise plot
+        paired_df_cleaned = processed_df.select([col1_name, col2_name]).drop_nulls()
+        if paired_df_cleaned.is_empty():
+            print(f"Warning: Pair ({col1_name}, {col2_name}) is empty after dropping nulls. Skipping plot.")
+            continue
+
+        s1_cleaned = paired_df_cleaned.get_column(col1_name)
+        s2_cleaned = paired_df_cleaned.get_column(col2_name)
+
+        # Get the effective data types (after string-to-datetime attempt in processed_df)
+        type1 = s1_cleaned.dtype
+        type2 = s2_cleaned.dtype
+
+        trace = None
+        plot_type_key = ""  # For axis labeling and specific updates
+
+        # 1. Numerical (X) vs Numerical (Y)
+        if type1.is_numeric() and type2.is_numeric():
+            trace = go.Scatter(
+                x=s1_cleaned.to_numpy(),
+                y=s2_cleaned.to_numpy(),
+                mode="markers",
+                marker=dict(color="steelblue", opacity=0.7, size=8),
+                name=f"{col2_name} vs {col1_name}",
+                showlegend=False,
+            )  # No legend for scatter
+            plot_type_key = "num_num_scatter"
+            subplot_titles.append(f"Scatter Plot: {col1_name} vs {col2_name}")
+
+        # 2. Numerical (X) vs Categorical (Y)
+        elif (type1.is_numeric() and (type2 == pl.String or type2 == pl.Categorical)) or (
+            (type1 == pl.String or type1 == pl.Categorical) and type2.is_numeric()
+        ):
+
+            num_s_cleaned = s1_cleaned if type1.is_numeric() else s2_cleaned
+            cat_s_cleaned = s2_cleaned if type1.is_numeric() else s1_cleaned
+
+            trace = go.Box(
+                x=num_s_cleaned.to_numpy(),
+                y=cat_s_cleaned.to_numpy(),
+                orientation="h",
+                marker_color="steelblue",
+                name=f"{num_s_cleaned.name} by {cat_s_cleaned.name}",
+                showlegend=False,
+            )  # No legend for box plot
+            plot_type_key = "num_cat_box"
+            subplot_titles.append(f"Box Plot: {num_s_cleaned.name} by {cat_s_cleaned.name}")
+
+        # 3. Categorical (X) vs Categorical (Y) - STACKED BAR CHART
+        elif (type1 == pl.String or type1 == pl.Categorical) and (type2 == pl.String or type2 == pl.Categorical):
+
+            # Compute cross-tabulation and pivot for stacking
+            counts_df_for_bar = processed_df.group_by(col1_name, col2_name).len().rename({"len": "count"})
+
+            # Get all unique categories from col1_name to ensure full axis coverage (Y-axis)
+            all_cat1_values = processed_df.get_column(col1_name).unique().sort().to_numpy()
+
+            # Iterate through each unique value of col2_name (which will be a stack segment)
+            traces_for_stack = []
+            all_cat2_values = processed_df.get_column(col2_name).unique().sort().to_numpy()
+
+            # For each unique value in col2_name, create a Bar trace
+            for cat2_val in all_cat2_values:
+                subset_counts_df = counts_df_for_bar.filter(pl.col(col2_name) == cat2_val)
+
+                # Create a Polars DataFrame for all unique col1_name values to ensure full alignment
+                full_cat1_df = pl.DataFrame({col1_name: all_cat1_values})
+
+                # Left join to ensure all col1_name categories are present, filling missing counts with 0.
+                # Then sort by col1_name for consistent plotting order on Y-axis.
+                merged_counts = (
+                    full_cat1_df.join(subset_counts_df, on=col1_name, how="left").fill_null(0).sort(col1_name)
+                )
+
+                # Show segment name as text on bars. Count is available on hover.
+                traces_for_stack.append(
+                    go.Bar(
+                        x=merged_counts.get_column("count").to_numpy(),
+                        y=merged_counts.get_column(col1_name).to_numpy(),
+                        orientation="h",  # Horizontal bars
+                        name=str(cat2_val),  # Name for legend (category from col2)
+                        hoverinfo="x+y+name+text",  # Show count, category1, category2, and text on hover
+                        text=np.where(
+                            merged_counts.get_column("count").to_numpy() > 0,
+                            merged_counts.get_column(col2_name).to_numpy(),
+                            "",
+                        ),  # Display segment name for non-zero counts
+                        textposition="auto",  # Automatically position text
+                    )
+                )
+
+            trace = traces_for_stack  # This will be a list of traces
+            plot_type_key = "cat_cat_stacked_bar"
+            subplot_titles.append(f"Stacked Bar Plot: {col1_name} by {col2_name} (Counts)")
+
+        # 4. Datetime (X) vs Numerical (Y)
+        elif (type1 == pl.Datetime and type2.is_numeric()) or (type1.is_numeric() and type2 == pl.Datetime):
+
+            dt_s_cleaned = s1_cleaned if type1 == pl.Datetime else s2_cleaned
+            num_s_cleaned = s2_cleaned if type1 == pl.Datetime else s1_cleaned
+
+            trace = go.Scatter(
+                x=dt_s_cleaned.to_numpy(),
+                y=num_s_cleaned.to_numpy(),
+                mode="lines+markers",
+                name=f"{num_s_cleaned.name} over {dt_s_cleaned.name}",
+                marker_color="steelblue",
+                showlegend=False,
+            )  # No legend for line
+            plot_type_key = "dt_num_line"
+            subplot_titles.append(f"Time Series: {num_s_cleaned.name} over {dt_s_cleaned.name}")
+
+        # 5. Datetime (X) vs Categorical (Y)
+        elif (type1 == pl.Datetime and (type2 == pl.String or type2 == pl.Categorical)) or (
+            (type1 == pl.String or type1 == pl.Categorical) and type2 == pl.Datetime
+        ):
+
+            dt_s_cleaned = s1_cleaned if type1 == pl.Datetime else s2_cleaned
+            cat_s_cleaned = s2_cleaned if type1 == pl.Datetime else s1_cleaned
+
+            # A box plot showing the distribution of dates for each category
+            trace = go.Box(
+                x=dt_s_cleaned.to_numpy(),
+                y=cat_s_cleaned.to_numpy(),
+                orientation="h",
+                name=f"Date Distribution by {cat_s_cleaned.name}",
+                marker_color="steelblue",
+                showlegend=False,
+            )  # No legend for box plot
+            plot_type_key = "dt_cat_box"
+            subplot_titles.append(f"Date Distribution: {dt_s_cleaned.name} by {cat_s_cleaned.name}")
+
+        # 6. Datetime (X) vs Datetime (Y)
+        elif type1 == pl.Datetime and type2 == pl.Datetime:
+            trace = go.Scatter(
+                x=s1_cleaned.to_numpy(),
+                y=s2_cleaned.to_numpy(),
+                mode="markers",
+                marker=dict(color="steelblue", opacity=0.7, size=8),
+                name=f"{col2_name} vs {col1_name}",
+                showlegend=False,
+            )  # No legend for scatter
+            plot_type_key = "dt_dt_scatter"
+            subplot_titles.append(f"Scatter Plot: {col1_name} vs {col2_name}")
+
+        else:
+            print(f"Warning: Unhandled data type combination for pair ({col1_name}, {col2_name}). Skipping plot.")
+            continue
+
+        if trace:
+            plots_to_add.append(
+                {
+                    "trace": trace,
+                    "col1_name": col1_name,
+                    "col2_name": col2_name,
+                    "plot_type_key": plot_type_key,
+                    "types": (type1, type2),
+                }
+            )
+
+    if not plots_to_add:
+        print("No suitable column pairs found for plotting. No chart will be generated.")
+        return
+
+    # Create subplots
+    # Each plot generally takes 1 row. Height can be adjusted based on total plots.
+    fig = make_subplots(
+        rows=len(plots_to_add),
+        cols=1,
+        vertical_spacing=0.03,  # Adjusted spacing between subplots
+        subplot_titles=subplot_titles,
+    )
+
+    # Add traces and update axis properties
+    for i, plot_info in enumerate(plots_to_add):
+        trace_data = plot_info["trace"]  # Can be a single trace or a list of traces
+        col1_name = plot_info["col1_name"]
+        col2_name = plot_info["col2_name"]
+        plot_type_key = plot_info["plot_type_key"]
+        type1, type2 = plot_info["types"]  # Effective types from processed_df
+
+        if isinstance(trace_data, list):  # If it's a list of traces (for stacked bars)
+            for single_trace in trace_data:
+                fig.add_trace(single_trace, row=i + 1, col=1)
+        else:  # Single trace
+            fig.add_trace(trace_data, row=i + 1, col=1)
+
+        # Set axis titles and types dynamically
+        xaxis_title = col1_name
+        yaxis_title = col2_name
+        xaxis_type = None  # Default
+        yaxis_type = None  # Default
+
+        # Adjust titles and types based on plot_type_key
+        if plot_type_key == "num_cat_box":
+            num_s_name = col1_name if type1.is_numeric() else col2_name
+            cat_s_name = col2_name if type1.is_numeric() else col1_name
+            xaxis_title = num_s_name
+            yaxis_title = cat_s_name
+            yaxis_type = "category"  # Y-axis for categorical in horizontal boxplot
+        elif plot_type_key == "cat_cat_stacked_bar":  # Adjusted for stacked bar
+            xaxis_title = "Count"  # X-axis is count for stacked bar
+            yaxis_title = col1_name  # Y-axis is the primary category
+            xaxis_type = "linear"
+            yaxis_type = "category"
+        elif plot_type_key == "dt_num_line":
+            dt_s_name = col1_name if type1 == pl.Datetime else col2_name
+            num_s_name = col2_name if type1 == pl.Datetime else col1_name
+            xaxis_title = dt_s_name
+            yaxis_title = num_s_name
+            xaxis_type = "date"
+        elif plot_type_key == "dt_cat_box":
+            dt_s_name = col1_name if type1 == pl.Datetime else col2_name
+            cat_s_name = col2_name if type1 == pl.Datetime else col1_name
+            xaxis_title = dt_s_name
+            yaxis_title = cat_s_name
+            xaxis_type = "date"
+            yaxis_type = "category"
+        elif plot_type_key == "dt_dt_scatter":
+            xaxis_title = col1_name
+            yaxis_title = col2_name
+            xaxis_type = "date"
+            yaxis_type = "date"
+
+        # Apply updates to the specific subplot axes
+        fig.update_xaxes(
+            title_text=xaxis_title, title_font_size=18, tickfont_size=16, type=xaxis_type, row=i + 1, col=1
+        )
+        fig.update_yaxes(
+            title_text=yaxis_title,
+            title_font_size=18,
+            tickfont_size=16,
+            automargin=True,
+            type=yaxis_type,
+            row=i + 1,
+            col=1,
+        )
+
+    # Calculate global x-axis range for numerical and datetime plots to align them
+    all_numeric_and_datetime_data = []
+    for col_name in processed_df.columns:
+        series = processed_df.get_column(col_name)
+        if series.dtype.is_numeric() or series.dtype == pl.Datetime:
+            non_null_data = series.drop_nulls().to_numpy()
+            if non_null_data.size > 0:
+                all_numeric_and_datetime_data.extend(non_null_data)
+
+    x_range = None
+    if all_numeric_and_datetime_data:
+        # Convert to appropriate type for min/max
+        # Check if the data contains datetime objects before converting to timestamp
+        # Ensure only non-datetime objects are passed to numpy.min/max for non-datetime columns
+        if all(isinstance(x, (np.datetime64, pl.Datetime)) for x in all_numeric_and_datetime_data):
+            # Attempt to convert all datetime-like objects to Python datetime objects for .timestamp()
+            converted_timestamps = []
+            for dt_obj in all_numeric_and_datetime_data:
+                if isinstance(dt_obj, np.datetime64):
+                    # Convert numpy datetime64 to pandas Timestamp, then to python datetime
+                    converted_timestamps.append(pd.Timestamp(dt_obj).to_pydatetime())
+                elif isinstance(dt_obj, pl.Datetime):
+                    # Polars Datetime is usually a wrapper around numpy.datetime64,
+                    # directly convert to string then to python datetime for robustness
+                    converted_timestamps.append(pd.to_datetime(str(dt_obj)).to_pydatetime())
+                else:
+                    # Fallback for unexpected types, though should be covered by type check
+                    converted_timestamps.append(dt_obj)
+
+            all_numeric_and_datetime_data = np.array(
+                [dt.timestamp() * 1000 for dt in converted_timestamps if hasattr(dt, "timestamp")]
+            )  # milliseconds
+            if all_numeric_and_datetime_data.size > 0:  # Ensure there's data after conversion
+                x_range = [np.min(all_numeric_and_datetime_data), np.max(all_numeric_and_datetime_data)]
+        elif all(isinstance(x, (int, float, np.integer, np.floating)) for x in all_numeric_and_datetime_data):
+            x_range = [np.min(all_numeric_and_datetime_data), np.max(all_numeric_and_datetime_data)]
+
+    # Update overall layout
+    fig.update_layout(
+        title={
+            "text": "Bivariate Data Analysis Report",
+            "font_size": 28,
+            "x": 0.5,
+            "xanchor": "center",
+        },
+        height=500 * len(plots_to_add),  # Dynamic height based on number of plots
+        width=1200,
+        showlegend=False,  # Global legend is now only shown for traces that explicitly have showlegend=True (i.e., stacked bars)
+        margin=dict(t=100, b=50, l=50, r=50),  # Top margin for title, others for general layout
+        barmode="stack",  # Enable stacking for all bar charts in the figure
+    )
+
+    # Apply shared x-axis range for numeric and datetime plots
+    if x_range is not None:
+        for i, plot_info in enumerate(plots_to_add):
+            type1, type2 = plot_info["types"]
+            # Only apply shared range if at least one axis is numeric or datetime
+            if type1.is_numeric() or type1 == pl.Datetime or type2.is_numeric() or type2 == pl.Datetime:
+                fig.update_xaxes(range=x_range, row=i + 1, col=1)
+
+    # Save the HTML file
+    try:
+        fig.write_html(output_filename, auto_open=False)
+        print(f"Bivariate charts saved to: '{output_filename}'.")
+        print(f"Please open '{output_filename}' in your web browser to view the report.")
     except Exception as e:
         print(f"An unexpected error occurred while saving the HTML file: {e}")
