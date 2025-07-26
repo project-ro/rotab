@@ -1,4 +1,7 @@
+import os
+import numpy as np
 from datetime import date
+
 from math import isclose
 import polars as pl
 import pytest
@@ -18,7 +21,8 @@ from rotab.core.operation.transform_funcs_polars import (
     replace,
     unique,
     summarize_columns,
-    is_date_column,
+    get_categorical_counts_table,
+    plot_categorical_bar_chart,
 )
 
 
@@ -236,3 +240,54 @@ def test_summarize_columns_all_string_full_metrics():
     assert row[idx("mode")] == "2020-01-01"
     assert row[idx("mode_freq")] == "2"
     assert isclose(float(row[idx("mode_ratio")]), 0.5)
+
+
+def test_get_categorical_counts_table_valid_column():
+    df = pl.DataFrame({"category": ["A", "B", "A", "C", "B", "A", "D", "C", "A"], "value": [1, 2, 3, 4, 5, 6, 7, 8, 9]})
+
+    result_df = get_categorical_counts_table(df, "category")
+
+    expected_data = {"category": ["A", "B", "C", "D"], "count": [4, 2, 2, 1]}
+    expected_df = (
+        pl.DataFrame(expected_data).with_columns(pl.col("count").cast(pl.UInt32)).sort("count", descending=True)
+    )
+
+    assert result_df.equals(expected_df)
+
+
+def test_get_categorical_counts_table_with_nulls():
+    df = pl.DataFrame({"color": ["Red", "Blue", None, "Red", "Green", None, "Red"], "value": [1, 2, 3, 4, 5, 6, 7]})
+
+    result_df = get_categorical_counts_table(df, "color")
+
+    expected_data = {"color": ["Red", "Blue", "Green"], "count": [3, 1, 1]}
+    expected_df = (
+        pl.DataFrame(expected_data).with_columns(pl.col("count").cast(pl.UInt32)).sort("count", descending=True)
+    )
+
+    assert result_df.equals(expected_df)
+
+
+def test_get_categorical_counts_table_empty_column_after_dropping_nulls():
+    df = pl.DataFrame({"empty_category": [None, None, None], "value": [1, 2, 3]})
+
+    result_df = get_categorical_counts_table(df, "empty_category")
+
+    assert result_df.is_empty()
+
+
+def test_get_categorical_counts_table_non_existent_column():
+    df = pl.DataFrame({"id": [1, 2, 3], "name": ["X", "Y", "Z"]})
+
+    with pytest.raises(ValueError) as excinfo:
+        get_categorical_counts_table(df, "non_existent_col")
+
+    assert "Error: The specified column 'non_existent_col' does not exist in the DataFrame." in str(excinfo.value)
+
+
+def test_get_categorical_counts_table_empty_dataframe():
+    df = pl.DataFrame({"category": pl.Series(dtype=pl.String), "count": pl.Series(dtype=pl.Int64)})
+
+    result_df = get_categorical_counts_table(df, "category")
+
+    assert result_df.is_empty()

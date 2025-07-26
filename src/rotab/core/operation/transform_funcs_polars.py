@@ -1,6 +1,9 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
 import polars as pl
 from typing import List, Dict, Any
 from datetime import date
+import numpy as np
 
 
 def normalize_dtype(dtype: str):
@@ -357,3 +360,40 @@ def summarize_columns(df: pl.DataFrame) -> pl.DataFrame:
     final_summary_df = pl.DataFrame(summaries, schema=final_schema)
 
     return final_summary_df
+
+
+def get_categorical_counts_table(df: pl.DataFrame, column_name: str) -> pl.DataFrame:
+    if column_name not in df.columns:
+        raise ValueError(f"Error: The specified column '{column_name}' does not exist in the DataFrame.")
+
+    series = df[column_name]
+    non_null_series = series.drop_nulls()
+
+    if non_null_series.is_empty():
+        print(
+            f"Warning: Column '{column_name}' contains only null values or is empty, so aggregation cannot be performed."
+        )
+        return pl.DataFrame()
+
+    counts_df = non_null_series.value_counts().sort("count", descending=True)
+    return counts_df
+
+
+def plot_categorical_bar_chart(categories: np.ndarray, counts: np.ndarray, column_name: str):
+    if categories.size == 0 or counts.size == 0:
+        print(f"Warning: No data available for column '{column_name}' to create a chart.")
+        return
+
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x=counts, y=categories, palette="viridis")
+
+    plt.title(f"Frequency of Categories for Column: {column_name}", fontsize=16)
+    plt.xlabel("Count", fontsize=12)
+    plt.ylabel("Category", fontsize=12)
+    plt.tight_layout()
+
+    output_filename = f"{column_name}_categorical_bar_chart.png"
+    plt.savefig(output_filename)
+    plt.close()
+
+    print(f"Horizontal bar chart for '{column_name}' saved as '{output_filename}'.")
