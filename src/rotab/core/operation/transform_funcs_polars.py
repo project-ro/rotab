@@ -1,9 +1,9 @@
-import matplotlib.pyplot as plt
-import seaborn as sns
 import polars as pl
 from typing import List, Dict, Any
 from datetime import date
 import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 def normalize_dtype(dtype: str):
@@ -375,25 +375,120 @@ def get_categorical_counts_table(df: pl.DataFrame, column_name: str) -> pl.DataF
         )
         return pl.DataFrame()
 
-    counts_df = non_null_series.value_counts().sort("count", descending=True)
+    # Sort by 'count' descending, then by the original column_name (categories) ascending for stable order
+    counts_df = non_null_series.value_counts().sort(
+        ["count", column_name], descending=[True, False]  # Added secondary sort
+    )
     return counts_df
 
 
-def plot_categorical_bar_chart(categories: np.ndarray, counts: np.ndarray, column_name: str):
+def plot_categorical_bar_chart(
+    categories: np.ndarray, counts: np.ndarray, column_name: str, output_filename: str = None
+):
     if categories.size == 0 or counts.size == 0:
         print(f"Warning: No data available for column '{column_name}' to create a chart.")
         return
 
-    plt.figure(figsize=(10, 6))
-    sns.barplot(x=counts, y=categories, palette="viridis")
+    data_list = sorted(zip(categories, counts), key=lambda x: (-x[1], x[0]))
+    sorted_categories = [item[0] for item in data_list]
+    sorted_counts = [item[1] for item in data_list]
 
-    plt.title(f"Frequency of Categories for Column: {column_name}", fontsize=16)
-    plt.xlabel("Count", fontsize=12)
-    plt.ylabel("Category", fontsize=12)
-    plt.tight_layout()
+    bar_trace = go.Bar(y=sorted_categories, x=sorted_counts, orientation="h", marker_color="steelblue")
 
-    output_filename = f"{column_name}_categorical_bar_chart.png"
-    plt.savefig(output_filename)
-    plt.close()
+    fig = go.Figure(data=[bar_trace])
 
-    print(f"Horizontal bar chart for '{column_name}' saved as '{output_filename}'.")
+    fig.update_layout(
+        title={
+            "text": f"Frequency of Categories for Column: {column_name}",
+            "font_size": 24,
+            "x": 0.5,
+            "xanchor": "center",
+        },
+        xaxis_title={"text": "Count", "font_size": 18},
+        yaxis_title={"text": "Category", "font_size": 18},
+        xaxis=dict(tickfont=dict(size=16)),
+        yaxis=dict(tickfont=dict(size=18), automargin=True),
+        width=1200,
+        height=800,
+    )
+
+    try:
+        fig.write_html(output_filename, auto_open=False)
+        print(f"Horizontal bar chart for '{column_name}' saved as '{output_filename}'.")
+        print(f"Please open '{output_filename}' in your web browser to view the chart.")
+    except Exception as e:
+        print(f"An unexpected error occurred while saving the HTML file: {e}")
+
+
+def plot_numerical_distribution(data: np.ndarray, column_name: str, output_filename: str = None):
+    # Check for empty data
+    if data.size == 0:
+        print(f"Warning: No data available for column '{column_name}' to create a chart.")
+        return
+
+    # Create subplots: 2 rows, 1 column for histogram and boxplot
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,  # Share the X-axis for better comparison
+        vertical_spacing=0.1,  # Space between subplots
+        subplot_titles=(f"Histogram of {column_name}", f"Boxplot of {column_name}"),
+    )
+
+    # Add Histogram trace to the first subplot
+    fig.add_trace(
+        go.Histogram(
+            x=data,
+            name="Count",  # This name appears in the legend if multiple traces are used
+            marker_color="steelblue",
+            xbins=dict(size=None),  # Auto binning for histogram
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Add Boxplot trace to the second subplot
+    fig.add_trace(
+        go.Box(
+            x=data,
+            name="Distribution",  # This name appears in the legend
+            marker_color="steelblue",
+            boxpoints="outliers",  # Show all points and outliers
+            jitter=0.3,  # Spread out points if boxpoints is set
+            pointpos=-1.8,  # Position of the points
+            line_width=2,
+            orientation="h",  # Horizontal boxplot
+        ),
+        row=2,
+        col=1,
+    )
+
+    # Customize overall layout
+    fig.update_layout(
+        title={
+            "text": f"Distribution of Numerical Data for Column: {column_name}",
+            "font_size": 24,  # Main title font size
+            "x": 0.5,  # Center the main title
+            "xanchor": "center",
+        },
+        height=800,  # Total height of the figure
+        width=1200,  # Total width of the figure
+        showlegend=False,  # No need for legend as traces are clear by subplot titles
+    )
+
+    # Customize axis titles and tick fonts for each subplot
+    # Row 1 (Histogram)
+    fig.update_xaxes(title_text="Value", title_font_size=18, tickfont_size=16, row=1, col=1)
+    fig.update_yaxes(title_text="Frequency", title_font_size=18, tickfont_size=16, row=1, col=1)
+
+    # Row 2 (Boxplot)
+    fig.update_xaxes(title_text="Value", title_font_size=18, tickfont_size=16, row=2, col=1)
+    # For a horizontal boxplot, y-axis is categorical (implicitly), no title needed
+    fig.update_yaxes(visible=False, row=2, col=1)  # Hide y-axis for cleaner boxplot
+
+    try:
+        fig.write_html(output_filename, auto_open=False)
+        print(f"Numerical distribution chart for '{column_name}' saved as '{output_filename}'.")
+        print(f"Please open '{output_filename}' in your web browser to view the chart.")
+    except Exception as e:
+        print(f"An unexpected error occurred while saving the HTML file: {e}")

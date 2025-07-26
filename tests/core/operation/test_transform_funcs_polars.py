@@ -23,6 +23,7 @@ from rotab.core.operation.transform_funcs_polars import (
     summarize_columns,
     get_categorical_counts_table,
     plot_categorical_bar_chart,
+    plot_numerical_distribution,
 )
 
 
@@ -291,3 +292,38 @@ def test_get_categorical_counts_table_empty_dataframe():
     result_df = get_categorical_counts_table(df, "category")
 
     assert result_df.is_empty()
+
+
+def test_plot_categorical_bar_chart_saves_image_file():
+    sample_categories = np.array(["ひらがな", "カタカナ", "漢字", "1"])
+    sample_counts = np.array([25, 18, 12, 7])
+    sample_column_name = "Experiment_Results"  # This will be part of the filename
+
+    expected_output_filename = f"./samples/{sample_column_name}_categorical_bar_chart.html"
+
+    if os.path.exists(expected_output_filename):
+        os.remove(expected_output_filename)
+
+    plot_categorical_bar_chart(sample_categories, sample_counts, sample_column_name, expected_output_filename)
+
+    assert os.path.exists(
+        expected_output_filename
+    ), f"Error: The chart file '{expected_output_filename}' was not created."
+
+
+def test_plot_numerical_distribution_saves_html_file():
+    sample_data = np.random.rand(100) * 100  # Random data between 0 and 100
+    sample_column_name = "Sample_Numerical_Data"
+    expected_output_filename = f"./samples/{sample_column_name}_distribution_chart.html"
+
+    # Clean up any previously created file to ensure a clean test run
+    if os.path.exists(expected_output_filename):
+        os.remove(expected_output_filename)
+
+    # Call the function to create and save the chart
+    plot_numerical_distribution(sample_data, sample_column_name, expected_output_filename)
+
+    # Assert that the HTML file was successfully created
+    assert os.path.exists(
+        expected_output_filename
+    ), f"Error: The chart file '{expected_output_filename}' was not created."
