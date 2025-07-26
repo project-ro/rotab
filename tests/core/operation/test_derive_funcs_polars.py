@@ -38,6 +38,7 @@ from rotab.core.operation.derive_funcs_polars import (
     right,
     days_since_last_birthday,
     contains,
+    zfill,
 )
 
 
@@ -467,3 +468,45 @@ def test_contains_japanese():
     df = pl.DataFrame({"a": ["アップル", "バナナ", "グレープ"]})
     out = df.with_columns(contains("a", "プ").alias("c"))
     assert out["c"].to_list() == [True, False, True]
+
+
+def test_zfill_from_int():
+    df = pl.DataFrame({"id": [45]})
+    out = df.select(zfill("id", 5)).to_series()
+    assert out[0] == "00045"
+
+
+def test_zfill_from_str_numeric():
+    df = pl.DataFrame({"id": ["78"]})
+    out = df.select(zfill("id", 4)).to_series()
+    assert out[0] == "0078"
+
+
+def test_zfill_from_float_whole():
+    df = pl.DataFrame({"id": [100.0]})
+    out = df.select(zfill("id", 6)).to_series()
+    assert out[0] == "000100"
+
+
+def test_zfill_from_str_floatlike():
+    df = pl.DataFrame({"id": ["56.0"]})
+    out = df.select(zfill("id", 4)).to_series()
+    assert out[0] == "0056"
+
+
+def test_zfill_from_zero_padded_str():
+    df = pl.DataFrame({"id": ["001"]})
+    out = df.select(zfill("id", 4)).to_series()
+    assert out[0] == "0001"  # 001 → int(1) → zfill → 0001
+
+
+def test_zfill_from_large_number():
+    df = pl.DataFrame({"id": [987654321]})
+    out = df.select(zfill("id", 10)).to_series()
+    assert out[0] == "0987654321"
+
+
+def test_zfill_null():
+    df = pl.DataFrame({"id": [None]})
+    out = df.select(zfill("id", 5)).to_series()
+    assert out[0] is None

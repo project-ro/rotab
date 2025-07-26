@@ -250,6 +250,10 @@ def format_timestamp(
     return final_expr.dt.strftime(output_format)
 
 
+def zfill(x: ExprOrStr, width: int) -> pl.Expr:
+    return _col(x).cast(pl.Float64).cast(pl.Int64).cast(pl.Utf8).str.zfill(width)
+
+
 FUNC_NAMESPACE = {
     "log": log,
     "log1p": log1p,
@@ -287,4 +291,5 @@ FUNC_NAMESPACE = {
     "right": right,
     "days_since_last_birthday": days_since_last_birthday,
     "contains": contains,
+    "zfill": zfill,
 }
