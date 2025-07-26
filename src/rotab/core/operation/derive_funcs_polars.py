@@ -22,39 +22,39 @@ def _to_datetime_expr(x: ExprOrStr, fmt: str = "%Y-%m-%d %H:%M:%S") -> pl.Expr:
 
 
 def log(x: ExprOrStr, base: float = 10) -> pl.Expr:
-    return _col(x).log(base)
+    return _col(x).cast(pl.Float64).log(base)
 
 
 def log1p(x: ExprOrStr) -> pl.Expr:
-    return _col(x).log1p().cast(pl.Float64)
+    return _col(x).cast(pl.Float64).log1p()
 
 
 def exp(x: ExprOrStr) -> pl.Expr:
-    return _col(x).exp()
+    return _col(x).cast(pl.Float64).exp()
 
 
 def sqrt(x: ExprOrStr) -> pl.Expr:
-    return _col(x).sqrt()
+    return _col(x).cast(pl.Float64).sqrt()
 
 
 def clip(x: ExprOrStr, min_val: float, max_val: float) -> pl.Expr:
-    return _col(x).clip(min_val, max_val)
+    return _col(x).cast(pl.Float64).clip(min_val, max_val)
 
 
 def round(x: ExprOrStr, decimals: int = 0) -> pl.Expr:
-    return _col(x).round(decimals)
+    return _col(x).cast(pl.Float64).round(decimals)
 
 
 def floor(x: ExprOrStr) -> pl.Expr:
-    return _col(x).floor()
+    return _col(x).cast(pl.Float64).floor()
 
 
 def ceil(x: ExprOrStr) -> pl.Expr:
-    return _col(x).ceil()
+    return _col(x).cast(pl.Float64).ceil()
 
 
 def abs(x: ExprOrStr) -> pl.Expr:
-    return _col(x).abs()
+    return _col(x).cast(pl.Float64).abs()
 
 
 def startswith(x: ExprOrStr, prefix: str) -> pl.Expr:
@@ -126,11 +126,11 @@ def not_null(x: ExprOrStr) -> pl.Expr:
 
 
 def min(x: ExprOrStr, y: ExprOrStr) -> pl.Expr:
-    return pl.min_horizontal([_col(x), _col(y)])
+    return pl.min_horizontal([_col(x).cast(pl.Float64), _col(y).cast(pl.Float64)])
 
 
 def max(x: ExprOrStr, y: ExprOrStr) -> pl.Expr:
-    return pl.max_horizontal([_col(x), _col(y)])
+    return pl.max_horizontal([_col(x).cast(pl.Float64), _col(y).cast(pl.Float64)])
 
 
 def len(x: ExprOrStr) -> pl.Expr:

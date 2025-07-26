@@ -95,6 +95,60 @@ def test_abs():
     assert out[0] == 5
 
 
+def test_log_string_input():
+    df = pl.DataFrame({"a": ["1", "10", "100"]})
+    out = df.select(log("a")).to_series()
+    assert out[0] == pytest.approx(0)
+
+
+def test_log1p_string_input():
+    df = pl.DataFrame({"a": ["0", "1", "9"]})
+    out = df.select(log1p("a")).to_series()
+    assert out[1] == pytest.approx(pl.Series([0, 0.6931, 2.3025], dtype=pl.Float64)[1], rel=1e-2)
+
+
+def test_exp_string_input():
+    df = pl.DataFrame({"a": ["0", "1"]})
+    out = df.select(exp("a")).to_series()
+    assert out[1] == pytest.approx(2.7182, rel=1e-2)
+
+
+def test_sqrt_string_input():
+    df = pl.DataFrame({"a": ["0", "4", "9"]})
+    out = df.select(sqrt("a")).to_series()
+    assert out[1] == 2
+
+
+def test_clip_string_input():
+    df = pl.DataFrame({"a": ["0", "5", "10"]})
+    out = df.select(clip("a", 3, 7)).to_series()
+    assert out[0] == 3
+
+
+def test_round_string_input():
+    df = pl.DataFrame({"a": ["1.2345"]})
+    out = df.select(round("a", 2)).to_series()
+    assert out[0] == 1.23
+
+
+def test_floor_string_input():
+    df = pl.DataFrame({"a": ["1.9"]})
+    out = df.select(floor("a")).to_series()
+    assert out[0] == 1
+
+
+def test_ceil_string_input():
+    df = pl.DataFrame({"a": ["1.1"]})
+    out = df.select(ceil("a")).to_series()
+    assert out[0] == 2
+
+
+def test_abs_string_input():
+    df = pl.DataFrame({"a": ["-5"]})
+    out = df.select(abs("a")).to_series()
+    assert out[0] == 5
+
+
 def test_len():
     df = pl.DataFrame({"a": ["abc", "de", "f"]})
     out = df.select(len("a")).to_series()
@@ -205,6 +259,42 @@ def test_max():
     df = pl.DataFrame({"a": [1], "b": [2]})
     out = df.select(max("a", "b")).to_series()
     assert out[0] == 2
+
+
+def test_min_string_input():
+    df = pl.DataFrame({"a": ["1"], "b": ["2"]})
+    out = df.select(min("a", "b")).to_series()
+    assert out[0] == 1.0
+
+
+def test_max_string_input():
+    df = pl.DataFrame({"a": ["1"], "b": ["2"]})
+    out = df.select(max("a", "b")).to_series()
+    assert out[0] == 2.0
+
+
+def test_min_str_and_int():
+    df = pl.DataFrame({"a": ["1"], "b": [2]})
+    out = df.select(min("a", "b")).to_series()
+    assert out[0] == 1.0
+
+
+def test_max_str_and_int():
+    df = pl.DataFrame({"a": ["1"], "b": [2]})
+    out = df.select(max("a", "b")).to_series()
+    assert out[0] == 2.0
+
+
+def test_min_int_and_str():
+    df = pl.DataFrame({"a": [1], "b": ["2"]})
+    out = df.select(min("a", "b")).to_series()
+    assert out[0] == 1.0
+
+
+def test_max_int_and_str():
+    df = pl.DataFrame({"a": [1], "b": ["2"]})
+    out = df.select(max("a", "b")).to_series()
+    assert out[0] == 2.0
 
 
 @pytest.mark.parametrize(
