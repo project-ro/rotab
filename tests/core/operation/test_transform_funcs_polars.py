@@ -1,3 +1,5 @@
+from datetime import date
+from math import isclose
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
@@ -15,6 +17,8 @@ from rotab.core.operation.transform_funcs_polars import (
     drop_na,
     replace,
     unique,
+    summarize_columns,
+    is_date_column,
 )
 
 
@@ -176,3 +180,59 @@ def test_unique_string_sort():
     expected = pl.DataFrame({"category": ["x", "y"], "value": ["apple", "apricot"], "weight": [2, 4]})
 
     assert out.sort(by=out.columns).rows() == expected.sort(by=expected.columns).rows()
+
+
+def test_summarize_columns_all_string_full_metrics():
+    df = pl.DataFrame(
+        {
+            "age": ["10", "20", "30", "0.0", None],  # force float
+            "name": ["A", "B", "A", "C", None],
+            "date": ["2020-01-01", "2020-01-01", "2020-05-01", "2021-01-01", None],
+        }
+    )
+
+    summary = summarize_columns(df)
+
+    # --- float column ---
+    row = summary.filter(pl.col("column") == "age").row(0)
+    idx = lambda key: summary.columns.index(key)
+
+    assert row[idx("dtype")] == "float"
+    assert isclose(float(row[idx("mean")]), 15.0)
+    assert isclose(float(row[idx("std")]), 12.909944, rel_tol=1e-3)
+    assert float(row[idx("min")]) == 0.0
+    assert float(row[idx("max")]) == 30.0
+    assert float(row[idx("Q1")]) == 10.0
+    assert float(row[idx("median")]) == 15.0
+    assert float(row[idx("Q3")]) == 20.0
+    assert float(row[idx("zeros")]) == 1.0
+    assert float(row[idx("infinite")]) == 0.0
+
+    # --- string column ---
+    row = summary.filter(pl.col("column") == "name").row(0)
+    assert row[idx("dtype")] == "string"
+    assert row[idx("top")] == "A"
+    assert row[idx("top_freq")] == "2"
+    assert isclose(float(row[idx("top_ratio")]), 2 / 5)
+    assert row[idx("min_cat")] in {"B", "C"}
+    assert row[idx("min_freq")] == "1"
+    assert isclose(float(row[idx("min_ratio")]), 1 / 5)
+    assert isclose(float(row[idx("avg_length")]), 1.0)
+    assert float(row[idx("min_length")]) == 1.0
+    assert float(row[idx("max_length")]) == 1.0
+
+    # --- date column ---
+    row = summary.filter(pl.col("column") == "date").row(0)
+    assert row[idx("dtype")] == "date"
+
+    assert row[idx("min")] == "2020-01-01"
+    assert row[idx("max")] == "2021-01-01"
+
+    assert row[idx("range_days")] == "366"
+    assert row[idx("min_year")] == "2020"
+    assert row[idx("max_year")] == "2021"
+    assert row[idx("min_month")] == "1"
+    assert row[idx("max_month")] == "5"
+    assert row[idx("mode")] == "2020-01-01"
+    assert row[idx("mode_freq")] == "2"
+    assert isclose(float(row[idx("mode_ratio")]), 0.5)
