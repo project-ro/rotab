@@ -1,6 +1,5 @@
 import polars as pl
 import pytest
-import datetime
 
 from rotab.core.operation.derive_funcs_polars import (
     log,
@@ -139,40 +138,49 @@ def test_strip():
 
 
 def test_year():
-    df = pl.DataFrame({"a": [datetime.datetime(2020, 5, 1)]})
+    df = pl.DataFrame({"a": ["2020-05-01"]})
     out = df.select(year("a")).to_series()
     assert out[0] == 2020
 
 
 def test_month():
-    df = pl.DataFrame({"a": [datetime.datetime(2020, 5, 1)]})
+    df = pl.DataFrame({"a": ["2020-05-01"]})
     out = df.select(month("a")).to_series()
     assert out[0] == 5
 
 
 def test_day():
-    df = pl.DataFrame({"a": [datetime.datetime(2020, 5, 15)]})
+    df = pl.DataFrame({"a": ["2020-05-15"]})
     out = df.select(day("a")).to_series()
     assert out[0] == 15
 
 
 def test_hour():
-    df = pl.DataFrame({"a": [datetime.datetime(2020, 5, 1, 13)]})
+    df = pl.DataFrame({"a": ["2020-05-01 13:00:00"]})
     out = df.select(hour("a")).to_series()
     assert out[0] == 13
 
 
 def test_weekday():
-    df = pl.DataFrame({"a": [datetime.datetime(2020, 5, 1)]})
+    df = pl.DataFrame({"a": ["2020-05-01"]})
     out = df.select(weekday("a")).to_series()
-    print(out)
     assert out[0] == 5  # Friday (1=Monday, 7=Sunday)
 
 
 def test_days_between():
-    df = pl.DataFrame({"d1": [datetime.datetime(2020, 5, 1)], "d2": [datetime.datetime(2020, 5, 10)]})
+    df = pl.DataFrame({"d1": ["2020-05-01"], "d2": ["2020-05-10"]})
     out = df.select(days_between("d1", "d2")).to_series()
     assert out[0] == 9
+
+
+def test_days_between_literal_and_column():
+    df = pl.DataFrame({"d1": ["2020-05-01"], "d2": ["2020-05-10"]})
+
+    out1 = df.select(days_between("2020-05-01", "d2")).to_series()
+    assert out1[0] == 9
+
+    out2 = df.select(days_between("d1", "2020-05-10")).to_series()
+    assert out2[0] == 9
 
 
 def test_is_null():
@@ -250,11 +258,36 @@ def test_int_():
     assert out["i"].to_list() == [10, 20]
 
 
+def test_int_from_float_string():
+    df = pl.DataFrame({"a": ["0.0", "1.0"]})
+    out = df.with_columns(int_("a").alias("i"))
+    assert out["i"].dtype == pl.Int64
+    assert out["i"].to_list() == [0, 1]
+
+
 def test_float_():
     df = pl.DataFrame({"a": ["1.1", "2.2"]})
     out = df.with_columns(float_("a").alias("f"))
     assert out["f"].dtype == pl.Float64
     assert out["f"].to_list() == [1.1, 2.2]
+
+
+def test_int_with_invalid_and_null():
+    df = pl.DataFrame({"a": ["10", "abc", None]})
+    out = df.with_columns(int_("a").alias("i"))
+    assert out["i"].to_list() == [10, None, None]
+
+
+def test_float_with_invalid_and_null():
+    df = pl.DataFrame({"a": ["1.1", "abc", None]})
+    out = df.with_columns(float_("a").alias("f"))
+    assert out["f"].to_list() == [1.1, None, None]
+
+
+def test_float_with_numeric_input():
+    df = pl.DataFrame({"a": [1.0, 2.0]})
+    out = df.with_columns(float_("a").alias("f"))
+    assert out["f"].to_list() == [1.0, 2.0]
 
 
 def test_bool_():
@@ -324,6 +357,14 @@ def test_days_since_last_birthday_column_after():
     df = df.with_columns(pl.col("ref").cast(str))
     out = df.with_columns(days_since_last_birthday("bday", "ref").alias("days"))
     assert out["days"].to_list() == [5]
+
+
+def test_days_since_last_birthday_column_column():
+    df = pl.DataFrame(
+        {"bday": ["1980-10-10", "1990-07-01", "2000-01-01"], "ref": ["2020-10-15", "2020-06-30", "2020-12-31"]}
+    )
+    out = df.with_columns(days_since_last_birthday("bday", "ref").alias("days"))
+    assert out["days"].to_list() == [5, 364, 365]
 
 
 def test_contains_ascii():

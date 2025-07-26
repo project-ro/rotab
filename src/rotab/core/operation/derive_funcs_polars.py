@@ -9,6 +9,18 @@ def _col(x: ExprOrStr) -> pl.Expr:
     return pl.col(x) if isinstance(x, str) else x
 
 
+def _to_date_expr(x: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
+    if isinstance(x, str):
+        return pl.col(x).str.strptime(pl.Date, fmt, strict=False)
+    return x.cast(pl.Date)
+
+
+def _to_datetime_expr(x: ExprOrStr, fmt: str = "%Y-%m-%d %H:%M:%S") -> pl.Expr:
+    if isinstance(x, str):
+        return pl.col(x).str.strptime(pl.Datetime, fmt, strict=False)
+    return x.cast(pl.Datetime)
+
+
 def log(x: ExprOrStr, base: float = 10) -> pl.Expr:
     return _col(x).log(base)
 
@@ -69,28 +81,40 @@ def strip(x: ExprOrStr) -> pl.Expr:
     return _col(x).str.strip_chars()
 
 
-def year(x: ExprOrStr) -> pl.Expr:
-    return _col(x).dt.year()
+def year(x: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
+    return _to_date_expr(x, fmt).dt.year()
 
 
-def month(x: ExprOrStr) -> pl.Expr:
-    return _col(x).dt.month()
+def month(x: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
+    return _to_date_expr(x, fmt).dt.month()
 
 
-def day(x: ExprOrStr) -> pl.Expr:
-    return _col(x).dt.day()
+def day(x: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
+    return _to_date_expr(x, fmt).dt.day()
 
 
-def hour(x: ExprOrStr) -> pl.Expr:
-    return _col(x).dt.hour()
+def hour(x: ExprOrStr, fmt: str = "%Y-%m-%d %H:%M:%S") -> pl.Expr:
+    return _to_datetime_expr(x, fmt).dt.hour()
 
 
-def weekday(x: ExprOrStr) -> pl.Expr:
-    return _col(x).dt.weekday()
+def weekday(x: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
+    return _to_date_expr(x, fmt).dt.weekday()
 
 
-def days_between(x: ExprOrStr, y: ExprOrStr) -> pl.Expr:
-    return (_col(y).cast(pl.Datetime) - _col(x).cast(pl.Datetime)).dt.total_days()
+def days_between(x: ExprOrStr, y: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
+    def _to_datetime_expr(x: ExprOrStr, fmt: str) -> pl.Expr:
+        if isinstance(x, str):
+            try:
+                datetime.strptime(x, fmt)
+                return pl.lit(x).str.strptime(pl.Datetime, fmt, strict=False)
+            except ValueError:
+                return pl.col(x).str.strptime(pl.Datetime, fmt, strict=False)
+        return x.cast(pl.Datetime)
+
+    x_expr = _to_datetime_expr(x, fmt)
+    y_expr = _to_datetime_expr(y, fmt)
+
+    return (y_expr - x_expr).dt.total_days()
 
 
 def is_null(x: ExprOrStr) -> pl.Expr:
@@ -113,20 +137,20 @@ def len(x: ExprOrStr) -> pl.Expr:
     return _col(x).str.len_chars()
 
 
-def str_(x: ExprOrStr) -> pl.Expr:
-    return _col(x).cast(pl.Utf8)
-
-
 def int_(x: ExprOrStr) -> pl.Expr:
-    return _col(x).cast(pl.Int64)
+    return _col(x).cast(pl.Float64, strict=False).cast(pl.Int64, strict=False)
 
 
 def float_(x: ExprOrStr) -> pl.Expr:
-    return _col(x).cast(pl.Float64)
+    return _col(x).cast(pl.Float64, strict=False)
 
 
 def bool_(x: ExprOrStr) -> pl.Expr:
-    return _col(x).cast(pl.Boolean)
+    return _col(x).cast(pl.Boolean, strict=False)
+
+
+def str_(x: ExprOrStr) -> pl.Expr:
+    return _col(x).cast(pl.Utf8, strict=False)
 
 
 def substr(x: ExprOrStr, start: int, length: int) -> pl.Expr:
@@ -145,24 +169,28 @@ def contains(x: ExprOrStr, substring: str) -> pl.Expr:
     return _col(x).str.contains(substring)
 
 
-def days_since_last_birthday(x: ExprOrStr, ref_date: Union[str, pl.Expr, None] = None) -> pl.Expr:
-    birthday = _col(x).str.strptime(pl.Date, "%Y-%m-%d")
+def days_since_last_birthday(
+    x: ExprOrStr,
+    ref_date: Union[str, pl.Expr, None] = None,
+    fmt: str = "%Y-%m-%d",
+) -> pl.Expr:
+    birthday = _to_date_expr(x, fmt)
 
     if ref_date is None:
-        ref_expr = pl.lit(datetime.today().strftime("%Y-%m-%d")).str.strptime(pl.Date, "%Y-%m-%d")
+        ref_expr = _to_date_expr(pl.lit(datetime.today().strftime(fmt)), fmt)
     elif isinstance(ref_date, str):
         try:
-            datetime.strptime(ref_date, "%Y-%m-%d")
-            ref_expr = pl.lit(ref_date).str.strptime(pl.Date, "%Y-%m-%d")
+            datetime.strptime(ref_date, fmt)
+            ref_expr = _to_date_expr(pl.lit(ref_date), fmt)
         except ValueError:
-            ref_expr = _col(ref_date).str.strptime(pl.Date, "%Y-%m-%d")
+            ref_expr = _to_date_expr(_col(ref_date), fmt)
     else:
-        ref_expr = ref_date
+        ref_expr = _to_date_expr(ref_date, fmt)
 
     ref_year = ref_expr.dt.year()
     this_year_birthday_str = birthday.dt.strftime("%m-%d")
     this_year_birthday = pl.concat_str([ref_year.cast(str), pl.lit("-"), this_year_birthday_str]).str.strptime(
-        pl.Date, "%Y-%m-%d"
+        pl.Date, "%Y-%m-%d", strict=False
     )
 
     last_birthday = (
