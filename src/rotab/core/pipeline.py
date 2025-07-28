@@ -150,6 +150,30 @@ class Pipeline:
         if self.context.transform_func_path:
             shutil.copy(self.context.transform_func_path, os.path.join(cf_dir, "transform_funcs.py"))
 
+    def copy_core_modules(self, source_dir: str) -> None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        if self.backend == "pandas":
+            files_to_copy = [
+                ("operation/derive_funcs_pandas.py", "core/operation/derive_funcs_pandas.py"),
+                ("operation/transform_funcs_pandas.py", "core/operation/transform_funcs_pandas.py"),
+                ("parse/parse.py", "core/parse.py"),
+            ]
+        elif self.backend == "polars":
+            files_to_copy = [
+                ("operation/derive_funcs_polars.py", "core/operation/derive_funcs_polars.py"),
+                ("operation/transform_funcs_polars.py", "core/operation/transform_funcs_polars.py"),
+                ("parse/parse.py", "core/parse.py"),
+            ]
+
+        for rel_src, rel_dst in files_to_copy:
+            src_path = os.path.join(base_dir, rel_src)
+            dst_path = os.path.join(source_dir, rel_dst)
+            if not os.path.exists(src_path):
+                continue
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+            shutil.copy(src_path, dst_path)
+
     def validate_all(self) -> None:
         validate_context = deepcopy(self.context)
         for template in self.templates:
@@ -186,6 +210,7 @@ class Pipeline:
     def run(self, execute: bool = True, dag: bool = False, selected_processes: Optional[List[str]] = None) -> None:
         logger.info("Pipeline run started.")
         os.makedirs(self.source_dir, exist_ok=True)
+        self.copy_core_modules(self.source_dir)
         self.copy_custom_functions(self.source_dir)
         self.rewrite_template_paths_and_copy_data(self.source_dir, self.template_dir)
 

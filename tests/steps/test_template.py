@@ -69,9 +69,11 @@ from rotab.ast.util import INDENT
             [
                 # === Imports ===
                 "import os",
+                "import sys",
+                """sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))""",
                 "import pandas as pd",
-                "from rotab.core.operation.derive_funcs_pandas import *",
-                "from rotab.core.operation.transform_funcs_pandas import *",
+                "from core.operation.derive_funcs_pandas import *",
+                "from core.operation.transform_funcs_pandas import *",
                 "",
                 "",
                 # === Step 1 ===

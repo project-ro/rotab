@@ -125,12 +125,12 @@ rotab --template-dir ./examples/config/templates \
 ## 2. Generated Python Code
 
 ```python
-import os
-import polars as pl
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import polars as plss
 import fsspec
-from rotab.core.parse.parse import parse
-from rotab.core.operation.derive_funcs_polars import *
-from rotab.core.operation.transform_funcs_polars import *
+from rotab.core.parse import parse
+from rotab.operation.derive_funcs_polars import *
+from rotab.operation.transform_funcs_polars import *
 
 def step_filter_users_main_transaction_enrichment(filtered_users):
     filtered_users_main = filtered_users

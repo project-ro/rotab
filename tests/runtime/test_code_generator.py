@@ -54,9 +54,11 @@ def template_and_context(request) -> tuple[TemplateNode, ValidationContext, List
     if backend == "pandas":
         expected_process = [
             "import os",
+            "import sys",
+            """sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))""",
             "import pandas as pd",
-            "from rotab.core.operation.derive_funcs_pandas import *",
-            "from rotab.core.operation.transform_funcs_pandas import *",
+            "from core.operation.derive_funcs_pandas import *",
+            "from core.operation.transform_funcs_pandas import *",
             "from custom_functions.derive_funcs import *",
             "from custom_functions.transform_funcs import *",
             "",
@@ -93,11 +95,13 @@ def template_and_context(request) -> tuple[TemplateNode, ValidationContext, List
     else:  # polars
         expected_process = [
             "import os",
+            "import sys",
+            """sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))""",
             "import polars as pl",
             "import fsspec",
-            "from rotab.core.parse.parse import parse",
-            "from rotab.core.operation.derive_funcs_polars import *",
-            "from rotab.core.operation.transform_funcs_polars import *",
+            "from core.parse import parse",
+            "from core.operation.derive_funcs_polars import *",
+            "from core.operation.transform_funcs_polars import *",
             "from custom_functions.derive_funcs import *",
             "from custom_functions.transform_funcs import *",
             "",
