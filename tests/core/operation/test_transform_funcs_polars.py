@@ -26,6 +26,7 @@ from rotab.core.operation.transform_funcs_polars import (
     plot_timeseries_histogram,
     profile,
     profile_bivariate,
+    month_window,
 )
 
 
@@ -446,3 +447,54 @@ def test_profile_bivariate_valid_data():
     assert os.path.exists(output_file)
     # Check if the file is not empty
     assert os.path.getsize(output_file) > 0
+
+
+def test_month_window():
+    data_a = {
+        "date_str_a": [
+            "2024-01-01",
+            "2024-01-15",
+            "2024-02-01",
+            "2024-02-15",
+            "2024-03-01",
+            "2024-03-15",
+            "2024-04-01",
+            "2024-04-15",
+            "2024-05-01",
+            "2024-05-15",
+        ],
+        "value_a": [10, 11, 20, 21, 30, 31, 40, 41, 50, 51],
+    }
+    df_data_lazy = pl.DataFrame(data_a).lazy()
+
+    data_b = {
+        "date_str_b": ["2024/01/01", "2024/02/01", "2024/03/01"],
+        "base_id": ["B1", "B2", "B3"],
+    }
+    df_base_lazy = pl.DataFrame(data_b).lazy()
+
+    result_df = month_window(
+        df_base=df_base_lazy,
+        date_col_base="date_str_b",
+        date_format_base="%Y/%m/%d",
+        df_data=df_data_lazy,
+        date_col_data="date_str_a",
+        value_col_data="value_a",
+        date_format_data="%Y-%m-%d",
+        months_list=[1],
+        new_col_name_prefix="test_metric",
+        metrics=["mean", "sum"],
+    )
+
+    expected_data = pl.DataFrame(
+        {
+            "base_id": ["B1", "B2", "B3"],
+            "test_metric_mean_1m": [10.5, 20.5, 30.5],
+            "test_metric_sum_1m": [21.0, 41.0, 61.0],
+        }
+    )
+
+    result_sorted = result_df.collect().sort("base_id").drop("base_date")
+    expected_sorted = expected_data.sort("base_id")
+
+    assert_frame_equal(result_sorted, expected_sorted, check_dtype=False, check_column_order=False)

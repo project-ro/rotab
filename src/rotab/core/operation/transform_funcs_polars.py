@@ -128,6 +128,67 @@ def unique(df: pl.DataFrame, group_keys: list[str], sort_by: str, ascending: boo
     return df.sort(group_keys + [sort_by], descending=not ascending).group_by(group_keys, maintain_order=True).first()
 
 
+def month_window(
+    df_base: pl.LazyFrame,
+    date_col_base: str,
+    date_format_base: str,
+    df_data: pl.LazyFrame,
+    date_col_data: str,
+    value_col_data: str,
+    date_format_data: str,
+    months_list: List[int],
+    new_col_name_prefix: str = "future_value",
+    metrics: List[str] = ["mean", "sum", "max"],
+) -> pl.LazyFrame:
+    df_base_processed = (
+        df_base.with_columns(pl.col(date_col_base).str.strptime(pl.Date, date_format_base).alias("base_date"))
+        .drop(date_col_base)
+        .with_row_index("row_id")
+    )
+
+    df_data_processed = (
+        df_data.with_columns(pl.col(date_col_data).str.strptime(pl.Date, date_format_data).alias("data_date"))
+        .drop(date_col_data)
+        .sort("data_date")
+    )
+
+    results = []
+
+    for m in months_list:
+        suffix = f"_{m}m"
+        df_base_sorted = df_base_processed.sort("base_date")
+
+        df_data_with_base_info = df_data_processed.join_asof(
+            df_base_sorted,
+            left_on="data_date",
+            right_on="base_date",
+            strategy="backward",
+        )
+
+        df_data_with_base_info = df_data_with_base_info.with_columns(
+            (pl.col("base_date").dt.offset_by(f"{m}mo")).alias("period_end_date")
+        )
+
+        df_filtered_by_window = df_data_with_base_info.filter(
+            (pl.col("data_date") >= pl.col("base_date")) & (pl.col("data_date") < pl.col("period_end_date"))
+        )
+
+        aggs = [
+            getattr(pl.col(value_col_data), metric)().alias(f"{new_col_name_prefix}_{metric}{suffix}")
+            for metric in metrics
+        ]
+
+        df_agg_result = df_filtered_by_window.group_by("row_id").agg(aggs)
+
+        results.append(df_agg_result)
+
+    final_df = df_base_processed
+    for res_df in results:
+        final_df = final_df.join(res_df, on="row_id", how="left")
+
+    return final_df.drop("row_id")
+
+
 def is_date_column(series: pl.Series, fmt: str = "%Y-%m-%d") -> bool:
     if series.is_empty() or series.null_count() == len(series):
         return True
@@ -150,9 +211,6 @@ def is_date_column(series: pl.Series, fmt: str = "%Y-%m-%d") -> bool:
     return parsed.drop_nulls().len() == len(non_null_str_series)
 
 
-# is_date_column 関数はコメントなし版が最新と仮定
-# is_float_column, is_int_column 関数も変更なしで、ここに存在すると仮定
-# 仮の is_float_column と is_int_column の定義（実際のコードに合わせてください）
 def is_float_column(series: pl.Series) -> bool:
     try:
         temp_series = series.drop_nulls().cast(str)
