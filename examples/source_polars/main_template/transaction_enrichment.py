@@ -38,7 +38,7 @@ def step_filter_transactions_main_transaction_enrichment(filtered_transactions):
 
 
 def step_merge_transactions_transaction_enrichment(filtered_users_main, filtered_trans):
-    enriched = merge(left=filtered_users_main, right=filtered_trans, on='user_id')
+    enriched = merge(left=filtered_users_main, right=filtered_trans, on=['user_id'])
     return enriched
 
 

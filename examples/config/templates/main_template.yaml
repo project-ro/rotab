@@ -54,7 +54,7 @@ processes:
 
       - name: merge_transactions
         with: [filtered_users_main, filtered_trans]
-        transform: merge(left=filtered_users_main, right=filtered_trans, on='user_id')
+        transform: merge(left=filtered_users_main, right=filtered_trans, on=['user_id'])
         as: enriched
 
       - name: derive_segment

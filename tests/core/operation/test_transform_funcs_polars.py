@@ -104,7 +104,7 @@ def test_merge_inner():
 def test_merge_left():
     df1 = pl.DataFrame({"id": [1, 2], "val1": ["a", "b"]})
     df2 = pl.DataFrame({"id": [2, 3], "val2": ["c", "d"]})
-    out = merge(df1, df2, on="id", how="left")
+    out = merge(df1, df2, on=["id"], how="left")
     assert out["id"].to_list() == [1, 2]
 
 

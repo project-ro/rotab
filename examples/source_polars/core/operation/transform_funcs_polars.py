@@ -70,7 +70,9 @@ def drop_duplicates(table: pl.DataFrame, subset: List[str] = None) -> pl.DataFra
     return table.unique(subset=subset)
 
 
-def merge(left: pl.DataFrame, right: pl.DataFrame, on: str, how: str = "inner") -> pl.DataFrame:
+def merge(left: pl.DataFrame, right: pl.DataFrame, on: Union[str, List[str]], how: str = "inner") -> pl.DataFrame:
+    if isinstance(on, str):
+        on = [on]
     return left.join(right, on=on, how=how)
 
 
