@@ -101,19 +101,22 @@ def weekday(x: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
     return _to_date_expr(x, fmt).dt.weekday()
 
 
-def days_between(x: ExprOrStr, y: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
-    def _to_datetime_expr(x: ExprOrStr, fmt: str) -> pl.Expr:
-        if isinstance(x, str):
-            try:
-                datetime.strptime(x, fmt)
-                return pl.lit(x).str.strptime(pl.Datetime, fmt, strict=False)
-            except ValueError:
-                return pl.col(x).str.strptime(pl.Datetime, fmt, strict=False)
+def _to_datetime_expr_safe(x: ExprOrStr, fmt: str) -> pl.Expr:
+    if isinstance(x, pl.Expr):
         return x.cast(pl.Datetime)
+    elif isinstance(x, str):
+        try:
+            datetime.strptime(x, fmt)
+            return pl.lit(x).str.strptime(pl.Datetime, fmt, strict=False)
+        except ValueError:
+            return pl.col(x).cast(pl.Utf8).str.strptime(pl.Datetime, fmt, strict=False)
+    else:
+        raise TypeError(f"Unsupported type for datetime conversion: {type(x)}")
 
-    x_expr = _to_datetime_expr(x, fmt)
-    y_expr = _to_datetime_expr(y, fmt)
 
+def days_between(x: ExprOrStr, y: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
+    x_expr = _to_datetime_expr_safe(x, fmt)
+    y_expr = _to_datetime_expr_safe(y, fmt)
     return (y_expr - x_expr).dt.total_days()
 
 
@@ -211,11 +214,19 @@ def format_timestamp(
 
     is_date_only = not any(token in parse_fmt for token in ("%H", "%M", "%S"))
     fmt = parse_fmt
+
     if "%d" not in fmt:
         if "%m" in parse_fmt:
-            separator = "-" if "-" in parse_fmt else "/" if "/" in parse_fmt else ""
-            expr_cleaned = expr_cleaned + f"{separator}01"
-            fmt += f"{separator}%d"
+            if "%Y%m" in parse_fmt:
+                expr_cleaned = expr_cleaned + "01"
+                fmt += "%d"
+            elif "%Y-%m" in parse_fmt or "%Y/%m" in parse_fmt:
+                separator = "-" if "-" in parse_fmt else "/"
+                expr_cleaned = expr_cleaned + f"{separator}01"
+                fmt += f"{separator}%d"
+            else:
+                expr_cleaned = expr_cleaned + "01"
+                fmt += "%d"
 
     dt_expr = expr_cleaned.str.strptime(pl.Datetime, fmt, strict=False)
 
@@ -250,8 +261,20 @@ def format_timestamp(
     return final_expr.dt.strftime(output_format)
 
 
-def zfill(x: ExprOrStr, width: int) -> pl.Expr:
-    return _col(x).cast(pl.Float64).cast(pl.Int64).cast(pl.Utf8).str.zfill(width)
+def zfill(x: ExprOrStr, width: int, normalize: bool = False) -> pl.Expr:
+    col = pl.col(x) if isinstance(x, str) else x
+
+    if normalize:
+
+        def norm(v):
+            try:
+                return str(int(float(v)))
+            except:
+                return None
+
+        return col.map_elements(norm, return_dtype=pl.Utf8).str.zfill(width)
+    else:
+        return col.cast(pl.Utf8).str.zfill(width)
 
 
 FUNC_NAMESPACE = {
