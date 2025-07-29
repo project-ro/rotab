@@ -211,11 +211,19 @@ def format_timestamp(
 
     is_date_only = not any(token in parse_fmt for token in ("%H", "%M", "%S"))
     fmt = parse_fmt
+
     if "%d" not in fmt:
         if "%m" in parse_fmt:
-            separator = "-" if "-" in parse_fmt else "/" if "/" in parse_fmt else ""
-            expr_cleaned = expr_cleaned + f"{separator}01"
-            fmt += f"{separator}%d"
+            if "%Y%m" in parse_fmt:
+                expr_cleaned = expr_cleaned + "01"
+                fmt += "%d"
+            elif "%Y-%m" in parse_fmt or "%Y/%m" in parse_fmt:
+                separator = "-" if "-" in parse_fmt else "/"
+                expr_cleaned = expr_cleaned + f"{separator}01"
+                fmt += f"{separator}%d"
+            else:
+                expr_cleaned = expr_cleaned + "01"
+                fmt += "%d"
 
     dt_expr = expr_cleaned.str.strptime(pl.Datetime, fmt, strict=False)
 
@@ -250,8 +258,20 @@ def format_timestamp(
     return final_expr.dt.strftime(output_format)
 
 
-def zfill(x: ExprOrStr, width: int) -> pl.Expr:
-    return _col(x).cast(pl.Float64).cast(pl.Int64).cast(pl.Utf8).str.zfill(width)
+def zfill(x: ExprOrStr, width: int, normalize: bool = False) -> pl.Expr:
+    col = pl.col(x) if isinstance(x, str) else x
+
+    if normalize:
+
+        def norm(v):
+            try:
+                return str(int(float(v)))
+            except:
+                return None
+
+        return col.map_elements(norm, return_dtype=pl.Utf8).str.zfill(width)
+    else:
+        return col.cast(pl.Utf8).str.zfill(width)
 
 
 FUNC_NAMESPACE = {

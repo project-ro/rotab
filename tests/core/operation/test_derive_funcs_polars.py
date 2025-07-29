@@ -317,6 +317,13 @@ def test_max_int_and_str():
         ),
         ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "%H時%M分", "UTC", "Asia/Tokyo", "23時30分"),
         ("2025-07-19T14:30:00", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M", "Asia/Tokyo", None, "2025/07/19 14:30"),
+        ("202403", "%Y%m", "%Y-%m-%d", "Asia/Tokyo", "UTC", "2024-03-01"),
+        ("2024-07", "%Y-%m", "%Y-%m-%d", "Asia/Tokyo", "UTC", "2024-07-01"),
+        ("2024/08", "%Y/%m", "%Y/%m", "Asia/Tokyo", "UTC", "2024/08"),
+        ("2025-01", "%Y-%m", "%Y%m", None, "UTC", "202501"),
+        ("2024-03-12", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "Asia/Tokyo", "UTC", "2024-03-12T00:00:00"),
+        ("2020年3月12日", "%Y年%m月%d日", "%Y", "Asia/Tokyo", "UTC", "2020"),
+        ("2025-01-01T08:59:59+09:00", "%Y-%m-%dT%H:%M:%S", "%m", None, "UTC", "12"),
     ],
 )
 def test_format_timestamp_cases(input_val, parse_fmt, output_format, input_tz, output_tz, expected):
@@ -470,43 +477,31 @@ def test_contains_japanese():
     assert out["c"].to_list() == [True, False, True]
 
 
-def test_zfill_from_int():
-    df = pl.DataFrame({"id": [45]})
-    out = df.select(zfill("id", 5)).to_series()
-    assert out[0] == "00045"
+def test_zfill_strict_from_alpha_str():
+    df = pl.DataFrame({"id": ["abc"]})
+    out = df.select(zfill("id", 5, normalize=False)).to_series()
+    assert out[0] == "00abc"
 
 
-def test_zfill_from_str_numeric():
-    df = pl.DataFrame({"id": ["78"]})
-    out = df.select(zfill("id", 4)).to_series()
-    assert out[0] == "0078"
+def test_zfill_strict_from_mixed_alphanum():
+    df = pl.DataFrame({"id": ["a123"]})
+    out = df.select(zfill("id", 6, normalize=False)).to_series()
+    assert out[0] == "00a123"
 
 
-def test_zfill_from_float_whole():
-    df = pl.DataFrame({"id": [100.0]})
-    out = df.select(zfill("id", 6)).to_series()
-    assert out[0] == "000100"
+def test_zfill_strict_from_prefixed_code():
+    df = pl.DataFrame({"id": ["LC0023"]})
+    out = df.select(zfill("id", 8, normalize=False)).to_series()
+    assert out[0] == "00LC0023"
 
 
-def test_zfill_from_str_floatlike():
-    df = pl.DataFrame({"id": ["56.0"]})
-    out = df.select(zfill("id", 4)).to_series()
-    assert out[0] == "0056"
+def test_zfill_strict_from_empty_string():
+    df = pl.DataFrame({"id": [""]})
+    out = df.select(zfill("id", 4, normalize=False)).to_series()
+    assert out[0] == "0000"
 
 
-def test_zfill_from_zero_padded_str():
-    df = pl.DataFrame({"id": ["001"]})
-    out = df.select(zfill("id", 4)).to_series()
-    assert out[0] == "0001"  # 001 → int(1) → zfill → 0001
-
-
-def test_zfill_from_large_number():
-    df = pl.DataFrame({"id": [987654321]})
-    out = df.select(zfill("id", 10)).to_series()
-    assert out[0] == "0987654321"
-
-
-def test_zfill_null():
+def test_zfill_strict_from_none():
     df = pl.DataFrame({"id": [None]})
-    out = df.select(zfill("id", 5)).to_series()
+    out = df.select(zfill("id", 4, normalize=False)).to_series()
     assert out[0] is None
