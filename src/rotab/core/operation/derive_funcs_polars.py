@@ -101,22 +101,22 @@ def weekday(x: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
     return _to_date_expr(x, fmt).dt.weekday()
 
 
-def _to_datetime_expr_safe(x: ExprOrStr, fmt: str) -> pl.Expr:
+def _to_date_expr_safe(x: ExprOrStr, fmt: str) -> pl.Expr:
     if isinstance(x, pl.Expr):
-        return x.cast(pl.Datetime)
+        return x.cast(pl.Date)
     elif isinstance(x, str):
         try:
             datetime.strptime(x, fmt)
-            return pl.lit(x).str.strptime(pl.Datetime, fmt, strict=False)
+            return pl.lit(x).str.strptime(pl.Date, fmt, strict=False)
         except ValueError:
-            return pl.col(x).cast(pl.Utf8).str.strptime(pl.Datetime, fmt, strict=False)
+            return pl.col(x).cast(pl.Utf8).str.strptime(pl.Date, fmt, strict=False)
     else:
-        raise TypeError(f"Unsupported type for datetime conversion: {type(x)}")
+        raise TypeError(f"Unsupported type for date conversion: {type(x)}")
 
 
 def days_between(x: ExprOrStr, y: ExprOrStr, fmt: str = "%Y-%m-%d") -> pl.Expr:
-    x_expr = _to_datetime_expr_safe(x, fmt)
-    y_expr = _to_datetime_expr_safe(y, fmt)
+    x_expr = _to_date_expr_safe(x, fmt)
+    y_expr = _to_date_expr_safe(y, fmt)
     return (y_expr - x_expr).dt.total_days()
 
 
