@@ -1,9 +1,10 @@
 import sys
 from typing import List, Optional, Any, Dict, Union, Callable
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Literal
 import ast
 import re
+import unicodedata
 import textwrap
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
@@ -13,8 +14,8 @@ from rotab.ast.util import INDENT
 class StepNode(Node):
     name: str
     type: str
-    input_vars: List[str] = Field(..., alias="input_vars")  # `with` is renamed to `input_vars`
-    output_vars: List[str] = Field(..., alias="output_vars")  # 修正①: 必須のList型
+    input_vars: List[str] = Field(..., alias="input_vars")
+    output_vars: List[str] = Field(..., alias="output_vars")
     lineno: Optional[int] = None
 
     def to_dict(self) -> dict:
@@ -24,13 +25,35 @@ class StepNode(Node):
         return self.input_vars
 
     def get_outputs(self) -> List[str]:
-        return self.output_vars  # 修正②: 不要なネストを削除
+        return self.output_vars
 
 
 class MutateStep(StepNode):
     type: Literal["mutate"] = "mutate"
     operations: List[Dict[str, Any]]
     when: Optional[Union[str, bool]] = None
+
+    @staticmethod
+    def normalize_expr(expr: str) -> str:
+        return unicodedata.normalize("NFKC", expr)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_operations(cls, values):
+        operations = values.get("operations", [])
+        normalized = []
+        for op in operations:
+            if not isinstance(op, dict) or len(op) != 1:
+                normalized.append(op)
+                continue
+
+            key, value = next(iter(op.items()))
+            if isinstance(value, str) and key in {"filter", "derive"}:
+                value = cls.normalize_expr(value)
+            normalized.append({key: value})
+
+        values["operations"] = normalized
+        return values
 
     def validate(self, context: ValidationContext) -> None:
 

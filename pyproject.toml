@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rotab"
-version = "0.2.12"
+version = "0.2.13"
 description = "ROTAB: a template that moves with your thinking."
 packages = [{ include = "rotab", from = "src" }]
 authors = ["yuta.itatsu <yuta.itatsu@gmail.com>"]
