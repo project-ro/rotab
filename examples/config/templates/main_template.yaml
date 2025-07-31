@@ -63,6 +63,7 @@ processes:
           - derive: |
               segment = str(age_bucket) + str(log_age)
         as: enriched_with_segment
+        with, as: enriched, enriched_with_segment
 
       - name: groupby_segment
         with: enriched_with_segment

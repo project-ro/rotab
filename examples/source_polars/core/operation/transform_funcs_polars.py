@@ -130,6 +130,21 @@ def unique(df: pl.DataFrame, group_keys: list[str], sort_by: str, ascending: boo
     return df.sort(group_keys + [sort_by], descending=not ascending).group_by(group_keys, maintain_order=True).first()
 
 
+def _parse_date_column(column: pl.Expr, fmt: str) -> pl.Expr:
+    if "%d" not in fmt:
+        last_char = fmt[-1]
+        is_delimited = not last_char.isalpha()
+
+        if is_delimited:
+            column = column + f"{last_char}01"
+            fmt += f"{last_char}%d"
+        else:
+            column = column + "01"
+            fmt += "%d"
+
+    return column.str.strptime(pl.Datetime, fmt)
+
+
 def month_window(
     df_base: pl.LazyFrame,
     date_col_base: str,
@@ -142,53 +157,71 @@ def month_window(
     new_col_name_prefix: str = "future_value",
     metrics: List[str] = ["mean", "sum", "max"],
 ) -> pl.LazyFrame:
-    df_base_processed = (
-        df_base.with_columns(pl.col(date_col_base).str.strptime(pl.Date, date_format_base).alias("base_date"))
-        .drop(date_col_base)
-        .with_row_index("row_id")
-    )
+    _base_date = "__mw_base_date__"
+    _data_date = "__mw_data_date__"
+    _row_id = "__mw_row_id__"
+    _window_start = "__mw_window_start__"
+    _window_end = "__mw_window_end__"
 
-    df_data_processed = (
-        df_data.with_columns(pl.col(date_col_data).str.strptime(pl.Date, date_format_data).alias("data_date"))
-        .drop(date_col_data)
-        .sort("data_date")
-    )
+    df_base_processed = df_base.with_columns(
+        _parse_date_column(pl.col(date_col_base), date_format_base).cast(pl.Datetime("us")).alias(_base_date)
+    ).with_row_index(_row_id)
 
     results = []
 
     for m in months_list:
-        suffix = f"_{m}m"
-        df_base_sorted = df_base_processed.sort("base_date")
+        suffix = f"_{abs(m)}m"
+        direction = "past" if m < 0 else "future"
+        join_strategy = "forward" if m < 0 else "backward"
 
-        df_data_with_base_info = df_data_processed.join_asof(
+        df_data_corrected = df_data.with_columns(
+            (
+                _parse_date_column(pl.col(date_col_data), date_format_data)
+                + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
+            ).alias(_data_date)
+        ).sort(_data_date)
+
+        df_base_sorted = df_base_processed.sort(_base_date)
+
+        df_joined = df_data_corrected.join_asof(
             df_base_sorted,
-            left_on="data_date",
-            right_on="base_date",
-            strategy="backward",
+            left_on=_data_date,
+            right_on=_base_date,
+            strategy=join_strategy,
         )
 
-        df_data_with_base_info = df_data_with_base_info.with_columns(
-            (pl.col("base_date").dt.offset_by(f"{m}mo")).alias("period_end_date")
-        )
+        if m < 0:
+            df_joined = df_joined.with_columns(
+                [
+                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_start),
+                    pl.col(_base_date).alias(_window_end),
+                ]
+            )
+        else:
+            df_joined = df_joined.with_columns(
+                [
+                    pl.col(_base_date).alias(_window_start),
+                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_end),
+                ]
+            )
 
-        df_filtered_by_window = df_data_with_base_info.filter(
-            (pl.col("data_date") >= pl.col("base_date")) & (pl.col("data_date") < pl.col("period_end_date"))
+        df_filtered = df_joined.filter(
+            (pl.col(_data_date) >= pl.col(_window_start)) & (pl.col(_data_date) < pl.col(_window_end))
         )
 
         aggs = [
-            getattr(pl.col(value_col_data), metric)().alias(f"{new_col_name_prefix}_{metric}{suffix}")
+            getattr(pl.col(value_col_data), metric)().alias(f"{new_col_name_prefix}_{metric}_{direction}{suffix}")
             for metric in metrics
         ]
 
-        df_agg_result = df_filtered_by_window.group_by("row_id").agg(aggs)
-
-        results.append(df_agg_result)
+        df_agg = df_filtered.group_by(_row_id).agg(aggs)
+        results.append(df_agg)
 
     final_df = df_base_processed
     for res_df in results:
-        final_df = final_df.join(res_df, on="row_id", how="left")
+        final_df = final_df.join(res_df, on=_row_id, how="left")
 
-    return final_df.drop("row_id")
+    return final_df.drop(_row_id).drop(_base_date)
 
 
 def is_date_column(series: pl.Series, fmt: str = "%Y-%m-%d") -> bool:

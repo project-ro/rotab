@@ -16,9 +16,6 @@ processes:
     steps:
       - name: summarize_transactions
         with: trans
-        mutate:        
-          - derive: |
-              amount = （アマウント）
         mutate:
           - filter: amount > 0
           - derive: is_large = amount > 5000

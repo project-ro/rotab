@@ -199,7 +199,7 @@ def test_describe():
         }
     )
 
-    summary = describe(df)
+    summary = describe(df, date_format="%Y-%m-%d")
 
     # --- float column ---
     row = summary.filter(pl.col("column") == "age").row(0)
@@ -242,6 +242,32 @@ def test_describe():
     assert row[idx("min_month")] == "1"
     assert row[idx("max_month")] == "5"
     assert row[idx("mode")] == "2020-01-01"
+    assert row[idx("mode_freq")] == "2"
+    assert isclose(float(row[idx("mode_ratio")]), 0.5)
+
+
+def test_describe_supports_yyyymm_format():
+    df = pl.DataFrame(
+        {
+            "month_str": ["202301", "202301", "202302", "202303", None],
+            "value": ["1", "2", "3", "4", "5"],
+        }
+    )
+
+    summary = describe(df, date_format="%Y%m")
+
+    row = summary.filter(pl.col("column") == "month_str").row(0)
+    idx = lambda key: summary.columns.index(key)
+
+    assert row[idx("dtype")] == "date"
+    assert row[idx("min")] == "2023-01-01"
+    assert row[idx("max")] == "2023-03-01"
+    assert row[idx("range_days")] == "59"
+    assert row[idx("min_year")] == "2023"
+    assert row[idx("max_year")] == "2023"
+    assert row[idx("min_month")] == "1"
+    assert row[idx("max_month")] == "3"
+    assert row[idx("mode")] == "2023-01-01"
     assert row[idx("mode_freq")] == "2"
     assert isclose(float(row[idx("mode_ratio")]), 0.5)
 
@@ -396,6 +422,32 @@ def test_profile():
     assert os.path.getsize(output_file) > 0
 
 
+def test_profile_supports_yyyymm_format():
+    sample_pl_df = pl.DataFrame(
+        {
+            "年月": [
+                "202310",
+                "202311",
+                "202312",
+                "202401",
+                "202402",
+                "202403",
+                "202404",
+                "202405",
+                "202406",
+            ],
+            "売上高": np.random.normal(loc=12000, scale=2500, size=9).astype(int),
+            "店舗ID": ["A", "B", "C", "A", "B", "C", "A", "B", "C"],
+        }
+    )
+
+    output_file = "./samples/test_combined_report_yyyymm_format.html"
+    profile(sample_pl_df, output_file, date_format="%Y%m")
+
+    assert os.path.exists(output_file)
+    assert os.path.getsize(output_file) > 0
+
+
 def test_profile_bivariate_valid_data():
     sample_pl_df = pl.DataFrame(
         {
@@ -449,9 +501,47 @@ def test_profile_bivariate_valid_data():
     assert os.path.getsize(output_file) > 0
 
 
+def test_profile_bivariate_supports_yyyymm_format():
+    sample_pl_df = pl.DataFrame(
+        {
+            "年月": [
+                "202310",
+                "202310",
+                "202311",
+                "202311",
+                "202312",
+                "202312",
+                "202401",
+                "202401",
+                "202402",
+                "202402",
+            ],
+            "売上高": np.random.normal(loc=12000, scale=2500, size=10).astype(int),
+            "商品カテゴリ": ["野菜", "果物", "肉", "魚", "野菜", "果物", "肉", "魚", "野菜", "果物"],
+        }
+    )
+
+    column_pairs = [
+        ("年月", "売上高"),  # Datetime (from string) × Numerical
+        ("年月", "商品カテゴリ"),  # Datetime (from string) × Categorical
+        ("売上高", "商品カテゴリ"),  # Numerical × Categorical
+    ]
+
+    output_file = "./samples/bivariate_report_yyyymm_format.html"
+    profile_bivariate(sample_pl_df, column_pairs, output_file, date_format="%Y%m")
+
+    assert os.path.exists(output_file)
+    assert os.path.getsize(output_file) > 0
+
+
 def test_month_window():
     data_a = {
         "date_str_a": [
+            "2023-10-15",
+            "2023-11-01",
+            "2023-11-15",
+            "2023-12-01",
+            "2023-12-15",
             "2024-01-01",
             "2024-01-15",
             "2024-02-01",
@@ -459,11 +549,8 @@ def test_month_window():
             "2024-03-01",
             "2024-03-15",
             "2024-04-01",
-            "2024-04-15",
-            "2024-05-01",
-            "2024-05-15",
         ],
-        "value_a": [10, 11, 20, 21, 30, 31, 40, 41, 50, 51],
+        "value_a": [5, 6, 7, 8, 9, 10, 11, 20, 21, 30, 31, 40],
     }
     df_data_lazy = pl.DataFrame(data_a).lazy()
 
@@ -473,7 +560,7 @@ def test_month_window():
     }
     df_base_lazy = pl.DataFrame(data_b).lazy()
 
-    result_df = month_window(
+    result_df_mixed = month_window(
         df_base=df_base_lazy,
         date_col_base="date_str_b",
         date_format_base="%Y/%m/%d",
@@ -481,20 +568,69 @@ def test_month_window():
         date_col_data="date_str_a",
         value_col_data="value_a",
         date_format_data="%Y-%m-%d",
-        months_list=[1],
+        months_list=[1, -1],
         new_col_name_prefix="test_metric",
         metrics=["mean", "sum"],
     )
 
-    expected_data = pl.DataFrame(
+    expected_data_mixed = pl.DataFrame(
         {
             "base_id": ["B1", "B2", "B3"],
-            "test_metric_mean_1m": [10.5, 20.5, 30.5],
-            "test_metric_sum_1m": [21.0, 41.0, 61.0],
+            "test_metric_mean_future_1m": [10.5, 20.5, 30.5],
+            "test_metric_sum_future_1m": [21.0, 41.0, 61.0],
+            "test_metric_mean_past_1m": [8.5, 10.5, 20.5],
+            "test_metric_sum_past_1m": [17.0, 21.0, 41.0],
         }
     )
 
-    result_sorted = result_df.collect().sort("base_id").drop("base_date")
-    expected_sorted = expected_data.sort("base_id")
+    result_mixed_sorted = result_df_mixed.collect().select(expected_data_mixed.columns).sort("base_id")
+    expected_mixed_sorted = expected_data_mixed.sort("base_id")
 
-    assert_frame_equal(result_sorted, expected_sorted, check_dtype=False, check_column_order=False)
+    assert_frame_equal(
+        result_mixed_sorted,
+        expected_mixed_sorted,
+        check_dtypes=False,
+        check_column_order=False,
+    )
+
+
+def test_month_window_yyyymm_format():
+    df_data = pl.DataFrame(
+        {
+            "date_str": ["202302", "202303", "202304"],
+            "value": [10, 20, 30],
+        }
+    ).lazy()
+
+    df_base = pl.DataFrame(
+        {
+            "base_str": ["202303"],
+            "base_id": ["B1"],
+        }
+    ).lazy()
+
+    result = month_window(
+        df_base=df_base,
+        date_col_base="base_str",
+        date_format_base="%Y%m",
+        df_data=df_data,
+        date_col_data="date_str",
+        value_col_data="value",
+        date_format_data="%Y%m",
+        months_list=[1, -1],
+        new_col_name_prefix="metric",
+        metrics=["mean", "sum"],
+    )
+
+    expected = pl.DataFrame(
+        {
+            "base_id": ["B1"],
+            "metric_mean_future_1m": [20.0],
+            "metric_sum_future_1m": [20],
+            "metric_mean_past_1m": [10.0],
+            "metric_sum_past_1m": [10],
+        }
+    )
+
+    result_sorted = result.collect().select(expected.columns)
+    assert_frame_equal(result_sorted, expected, check_column_order=False, check_dtypes=False)
