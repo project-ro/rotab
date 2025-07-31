@@ -536,7 +536,7 @@ def test_profile_bivariate_supports_yyyymm_format():
 
 def test_month_window():
     data_a = {
-        "date_str_a": [
+        "date_str": [
             "2023-10-15",
             "2023-11-01",
             "2023-11-15",
@@ -556,19 +556,17 @@ def test_month_window():
     df_data_lazy = pl.DataFrame(data_a).lazy()
 
     data_b = {
-        "date_str_b": ["2024/01/01", "2024/02/01", "2024/03/01"],
+        "date_str": ["2024-01-01", "2024-02-01", "2024-03-01"],  # 同じカラム名・同じフォーマット
         "base_id": ["B1", "B1", "B1"],
     }
     df_base_lazy = pl.DataFrame(data_b).lazy()
 
     result_df_mixed = month_window(
         df_base=df_base_lazy,
-        date_col_base="date_str_b",
-        date_format_base="%Y/%m/%d",
         df_data=df_data_lazy,
-        date_col_data="date_str_a",
-        value_col_data="value_a",
-        date_format_data="%Y-%m-%d",
+        date_col="date_str",
+        date_format="%Y-%m-%d",  # 両方で共通
+        value_cols=["value_a"],
         months_list=[1, -1],
         new_col_name_prefix="test_metric",
         metrics=["mean", "sum"],
@@ -578,10 +576,10 @@ def test_month_window():
     expected_data_mixed = pl.DataFrame(
         {
             "base_id": ["B1", "B1", "B1"],
-            "test_metric_mean_future_1m": [10.5, 20.5, 30.5],
-            "test_metric_sum_future_1m": [21.0, 41.0, 61.0],
-            "test_metric_mean_past_1m": [8.5, 10.5, 20.5],
-            "test_metric_sum_past_1m": [17.0, 21.0, 41.0],
+            "test_metric_value_a_mean_future_1m": [10.5, 20.5, 30.5],
+            "test_metric_value_a_sum_future_1m": [21.0, 41.0, 61.0],
+            "test_metric_value_a_mean_past_1m": [8.5, 10.5, 20.5],
+            "test_metric_value_a_sum_past_1m": [17.0, 21.0, 41.0],
         }
     )
 
@@ -594,3 +592,46 @@ def test_month_window():
         check_dtypes=False,
         check_column_order=False,
     )
+
+
+def test_month_window_yyyymm_format():
+    df_data = pl.DataFrame(
+        {
+            "date_str": ["202302", "202303", "202304"],
+            "value": [10, 20, 30],
+            "base_id": ["B1"] * 3,
+        }
+    ).lazy()
+
+    df_base = pl.DataFrame(
+        {
+            "date_str": ["202303"],  # 同一カラム名
+            "base_id": ["B1"],
+        }
+    ).lazy()
+
+    result = month_window(
+        df_base=df_base,
+        df_data=df_data,
+        date_col="date_str",
+        date_format="%Y%m",
+        value_cols=["value"],
+        months_list=[1, -1],
+        new_col_name_prefix="metric",
+        metrics=["mean", "sum"],
+        keys=["base_id"],
+    )
+
+    expected = pl.DataFrame(
+        {
+            "base_id": ["B1"],
+            "metric_value_mean_future_1m": [20.0],
+            "metric_value_sum_future_1m": [20],
+            "metric_value_mean_past_1m": [10.0],
+            "metric_value_sum_past_1m": [10],
+        }
+    )
+
+    result_sorted = result.collect().select(expected.columns)
+
+    assert_frame_equal(result_sorted, expected, check_column_order=False, check_dtypes=False)

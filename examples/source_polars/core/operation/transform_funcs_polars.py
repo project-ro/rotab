@@ -156,16 +156,27 @@ def month_window(
     months_list: List[int],
     new_col_name_prefix: str = "future_value",
     metrics: List[str] = ["mean", "sum", "max"],
+    keys: List[str] = [],
 ) -> pl.LazyFrame:
     _base_date = "__mw_base_date__"
     _data_date = "__mw_data_date__"
     _row_id = "__mw_row_id__"
     _window_start = "__mw_window_start__"
     _window_end = "__mw_window_end__"
+    _join_key = "__mw_join_key__"
 
-    df_base_processed = df_base.with_columns(
-        _parse_date_column(pl.col(date_col_base), date_format_base).cast(pl.Datetime("us")).alias(_base_date)
-    ).with_row_index(_row_id)
+    # base 側：日時 + キー連結列 + 行ID
+    df_base_processed = (
+        df_base.with_columns(
+            _parse_date_column(pl.col(date_col_base), date_format_base).cast(pl.Datetime("us")).alias(_base_date)
+        )
+        .with_columns(
+            pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
+            if keys
+            else pl.lit("").alias(_join_key)
+        )
+        .with_row_index(_row_id)
+    )
 
     results = []
 
@@ -174,26 +185,38 @@ def month_window(
         direction = "past" if m < 0 else "future"
         join_strategy = "forward" if m < 0 else "backward"
 
-        df_data_corrected = df_data.with_columns(
-            (
-                _parse_date_column(pl.col(date_col_data), date_format_data)
-                + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
-            ).alias(_data_date)
-        ).sort(_data_date)
+        # data 側：日時 + キー連結列
+        df_data_corrected = (
+            df_data.with_columns(
+                (
+                    _parse_date_column(pl.col(date_col_data), date_format_data)
+                    + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
+                ).alias(_data_date)
+            )
+            .with_columns(
+                pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
+                if keys
+                else pl.lit("").alias(_join_key)
+            )
+            .sort([_join_key, _data_date])
+        )
 
-        df_base_sorted = df_base_processed.sort(_base_date)
+        df_base_sorted = df_base_processed.sort([_join_key, _base_date])
 
+        # join_asof: 補助キー + 日時
         df_joined = df_data_corrected.join_asof(
             df_base_sorted,
             left_on=_data_date,
             right_on=_base_date,
+            by=_join_key,
             strategy=join_strategy,
         )
 
+        # 集計ウィンドウ
         if m < 0:
             df_joined = df_joined.with_columns(
                 [
-                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_start),
+                    pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_start),
                     pl.col(_base_date).alias(_window_end),
                 ]
             )
@@ -201,27 +224,29 @@ def month_window(
             df_joined = df_joined.with_columns(
                 [
                     pl.col(_base_date).alias(_window_start),
-                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_end),
+                    pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_end),
                 ]
             )
 
+        # フィルタ適用
         df_filtered = df_joined.filter(
             (pl.col(_data_date) >= pl.col(_window_start)) & (pl.col(_data_date) < pl.col(_window_end))
         )
 
+        # 集計定義
         aggs = [
             getattr(pl.col(value_col_data), metric)().alias(f"{new_col_name_prefix}_{metric}_{direction}{suffix}")
             for metric in metrics
         ]
 
-        df_agg = df_filtered.group_by(_row_id).agg(aggs)
+        df_agg = df_filtered.group_by(keys + [_row_id]).agg(aggs)
         results.append(df_agg)
 
     final_df = df_base_processed
     for res_df in results:
-        final_df = final_df.join(res_df, on=_row_id, how="left")
+        final_df = final_df.join(res_df, on=keys + [_row_id], how="left")
 
-    return final_df.drop(_row_id).drop(_base_date)
+    return final_df.drop(_row_id).drop(_base_date).drop(_join_key)
 
 
 def is_date_column(series: pl.Series, fmt: str = "%Y-%m-%d") -> bool:
@@ -275,7 +300,7 @@ def _get_item_or_scalar(polars_result: Any) -> Any:
     return polars_result  # Already a scalar
 
 
-def describe(df: pl.DataFrame) -> pl.DataFrame:
+def describe(df: pl.DataFrame, date_format: str = None) -> pl.DataFrame:
     summaries = []
 
     full_summary_keys = {
@@ -323,51 +348,73 @@ def describe(df: pl.DataFrame) -> pl.DataFrame:
 
         summarized = False
 
-        if is_date_column(series):
-            try:
-                series_dt = series.cast(str).str.strptime(pl.Date, format="%Y-%m-%d", strict=False)
+        if is_date_column(series, date_format):
+            parsed_series_dt = None
 
-                min_date_val = _get_item_or_scalar(series_dt.min())
-                max_date_val = _get_item_or_scalar(series_dt.max())
+            formats_to_try = []
+            if date_format:
+                formats_to_try.append(date_format)
+            formats_to_try.extend(["%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%Y-%m", "%Y/%m", "%Y"])
+
+            seen = set()
+            unique_formats = []
+            for fmt in formats_to_try:
+                if fmt not in seen:
+                    unique_formats.append(fmt)
+                    seen.add(fmt)
+
+            for fmt in unique_formats:
+                temp_series_str = series.cast(pl.String).str.strip_chars()
+                temp_parsed = _parse_date_column(temp_series_str, fmt)
+
+                if (series.len() - nulls) > 0 and temp_parsed.drop_nulls().len() / (series.len() - nulls) >= 0.8:
+                    parsed_series_dt = temp_parsed
+                    break
+
+            if parsed_series_dt is not None:
+                # min/max/modeの値をPythonのdateオブジェクトとして取得し、strftimeでフォーマット
+                min_date_obj = _get_item_or_scalar(parsed_series_dt.min())
+                max_date_obj = _get_item_or_scalar(parsed_series_dt.max())
 
                 current_summary_data.update(
                     {
                         "dtype": "date",
-                        "min": str(min_date_val) if min_date_val is not None else None,
-                        "max": str(max_date_val) if max_date_val is not None else None,
+                        "min": min_date_obj.strftime("%Y-%m-%d") if min_date_obj is not None else None,
+                        "max": max_date_obj.strftime("%Y-%m-%d") if max_date_obj is not None else None,
                         "min_year": (
-                            str(_get_item_or_scalar(series_dt.dt.year().min()))
-                            if not series_dt.drop_nulls().is_empty()
+                            str(_get_item_or_scalar(parsed_series_dt.dt.year().min()))
+                            if not parsed_series_dt.drop_nulls().is_empty()
                             else None
                         ),
                         "max_year": (
-                            str(_get_item_or_scalar(series_dt.dt.year().max()))
-                            if not series_dt.drop_nulls().is_empty()
+                            str(_get_item_or_scalar(parsed_series_dt.dt.year().max()))
+                            if not parsed_series_dt.drop_nulls().is_empty()
                             else None
                         ),
                         "min_month": (
-                            str(_get_item_or_scalar(series_dt.dt.month().min()))
-                            if not series_dt.drop_nulls().is_empty()
+                            str(_get_item_or_scalar(parsed_series_dt.dt.month().min()))
+                            if not parsed_series_dt.drop_nulls().is_empty()
                             else None
                         ),
                         "max_month": (
-                            str(_get_item_or_scalar(series_dt.dt.month().max()))
-                            if not series_dt.drop_nulls().is_empty()
+                            str(_get_item_or_scalar(parsed_series_dt.dt.month().max()))
+                            if not parsed_series_dt.drop_nulls().is_empty()
                             else None
                         ),
                     }
                 )
 
-                date_only_series = series_dt.drop_nulls()
+                date_only_series = parsed_series_dt.drop_nulls()
                 mode_counts = date_only_series.value_counts().sort("count", descending=True)
                 if not mode_counts.is_empty():
-                    mode_val = _get_item_or_scalar(mode_counts[0, date_only_series.name])
+                    mode_val_date_obj = _get_item_or_scalar(mode_counts[0, date_only_series.name])
                     mode_freq = _get_item_or_scalar(mode_counts[0, "count"])
-                    mode_ratio = float(mode_freq) / len(date_only_series)
+
+                    mode_ratio = float(mode_freq) / len(date_only_series) if len(date_only_series) > 0 else 0.0
 
                     current_summary_data.update(
                         {
-                            "mode": str(mode_val),
+                            "mode": mode_val_date_obj.strftime("%Y-%m-%d") if mode_val_date_obj is not None else None,
                             "mode_freq": str(mode_freq),
                             "mode_ratio": str(mode_ratio),
                         }
@@ -377,6 +424,7 @@ def describe(df: pl.DataFrame) -> pl.DataFrame:
 
                 if current_summary_data["min"] is not None and current_summary_data["max"] is not None:
                     try:
+                        # ここではすでにYYYY-MM-DD形式の文字列になっているので、date.fromisoformatで安全に変換できる
                         temp_min_date = date.fromisoformat(current_summary_data["min"])
                         temp_max_date = date.fromisoformat(current_summary_data["max"])
                         range_days_val = (temp_max_date - temp_min_date).days
@@ -387,16 +435,16 @@ def describe(df: pl.DataFrame) -> pl.DataFrame:
                     current_summary_data["range_days"] = None
 
                 summarized = True
-            except Exception:
+            else:
                 current_summary_data["dtype"] = "error"
                 summarized = True
-            finally:
-                if summarized:
-                    summaries.append(current_summary_data)
-                    continue
 
-        elif not summarized and is_float_column(series):
-            series_float = series.cast(str).cast(pl.Float64, strict=False)
+            if summarized:
+                summaries.append(current_summary_data)
+                continue
+
+        elif is_float_column(series):
+            series_float = series.cast(pl.String).cast(pl.Float64, strict=False)
 
             current_summary_data.update(
                 {
@@ -422,16 +470,20 @@ def describe(df: pl.DataFrame) -> pl.DataFrame:
                 continue
 
         else:
-            series_str = series.drop_nulls().cast(str)
+            series_str = series.drop_nulls().cast(pl.String)
             vc = series_str.value_counts().sort("count", descending=True)
 
             top = top_freq = min_cat = min_freq = None
             if not vc.is_empty():
                 top = str(_get_item_or_scalar(vc[0, series_str.name]))
                 top_freq = str(_get_item_or_scalar(vc[0, "count"]))
+
                 if vc.height > 1:
                     min_cat = str(_get_item_or_scalar(vc[-1, series_str.name]))
                     min_freq = str(_get_item_or_scalar(vc[-1, "count"]))
+                elif vc.height == 1:
+                    min_cat = top
+                    min_freq = top_freq
 
             lengths = series_str.str.len_chars()
 
@@ -440,10 +492,14 @@ def describe(df: pl.DataFrame) -> pl.DataFrame:
                     "dtype": "string",
                     "top": top,
                     "top_freq": top_freq,
-                    "top_ratio": str(float(top_freq) / len(series)) if top_freq is not None else None,
+                    "top_ratio": (
+                        str(float(top_freq) / len(series)) if top_freq is not None and len(series) > 0 else None
+                    ),
                     "min_cat": min_cat,
                     "min_freq": min_freq,
-                    "min_ratio": str(float(min_freq) / len(series)) if min_freq is not None else None,
+                    "min_ratio": (
+                        str(float(min_freq) / len(series)) if min_freq is not None and len(series) > 0 else None
+                    ),
                     "avg_length": str(_get_item_or_scalar(lengths.mean())) if lengths.len() > 0 else None,
                     "min_length": str(_get_item_or_scalar(lengths.min())) if lengths.len() > 0 else None,
                     "max_length": str(_get_item_or_scalar(lengths.max())) if lengths.len() > 0 else None,
@@ -640,10 +696,10 @@ def plot_timeseries_histogram(dates: np.ndarray, column_name: str):
         print(f"An unexpected error occurred while saving the HTML file: {e}")
 
 
-def profile(  # Renamed function to profile
+def profile(
     df: pl.DataFrame,
     output_filename: str = "./samples/all_columns_charts.html",
-    date_format: str = "%Y-%m-%d %H:%M",  # Added date_format argument
+    date_format: str = "%Y-%m-%d %H:%M",
 ):
     if df.is_empty():
         print("Warning: Input DataFrame is empty. No charts will be generated.")
@@ -660,46 +716,37 @@ def profile(  # Renamed function to profile
             )
             continue
 
-        # --- START: Modified logic to handle string dates ---
         is_handled = False
         if non_null_series.dtype == pl.String:
-            # Attempt to parse string as datetime with the specified format.
-            parsed_datetime_series = non_null_series.str.to_datetime(format=date_format, strict=False)
-
-            # Check if it successfully parsed into a datetime type AND has non-null datetime values
-            if (
-                parsed_datetime_series.dtype == pl.Datetime and parsed_datetime_series.drop_nulls().len() > 0
-            ):  # Changed .is_datetime() to == pl.Datetime
-                plot_info.append(
-                    {
-                        "name": col_name,
-                        "type": "datetime",
-                        "rows": 1,
-                        "data": parsed_datetime_series.drop_nulls().to_numpy(),
-                    }
-                )
-                is_handled = True  # Mark as handled and move to next column
+            try:
+                parsed_datetime_series = _parse_date_column(pl.lit(non_null_series), date_format).to_series()
+                if parsed_datetime_series.dtype == pl.Datetime and parsed_datetime_series.drop_nulls().len() > 0:
+                    plot_info.append(
+                        {
+                            "name": col_name,
+                            "type": "datetime",
+                            "rows": 1,
+                            "data": parsed_datetime_series.drop_nulls().to_numpy(),
+                        }
+                    )
+                    is_handled = True
+            except Exception as e:
+                print(f"Warning: Failed to parse datetime for column '{col_name}': {e}")
 
         if is_handled:
             continue
-        # --- END: Modified logic to handle string dates ---
 
         if non_null_series.dtype.is_numeric():
             plot_info.append({"name": col_name, "type": "numerical", "rows": 2, "data": non_null_series.to_numpy()})
-        elif non_null_series.dtype == pl.Datetime:  # Changed .is_datetime() to == pl.Datetime
+        elif non_null_series.dtype == pl.Datetime:
             plot_info.append({"name": col_name, "type": "datetime", "rows": 1, "data": non_null_series.to_numpy()})
-        elif (
-            non_null_series.dtype == pl.String or non_null_series.dtype == pl.Categorical
-        ):  # Using direct comparison for string/categorical
+        elif non_null_series.dtype == pl.String or non_null_series.dtype == pl.Categorical:
             counts_pl_df = non_null_series.value_counts()
             category_col_name = col_name
             count_col_name = "count"
-
             sorted_counts_pl_df = counts_pl_df.sort([count_col_name, category_col_name], descending=[True, False])
-
             sorted_categories = sorted_counts_pl_df[category_col_name].to_numpy()
             sorted_counts = sorted_counts_pl_df[count_col_name].to_numpy()
-
             plot_info.append(
                 {
                     "name": col_name,
@@ -732,7 +779,7 @@ def profile(  # Renamed function to profile
     fig = make_subplots(
         rows=total_rows,
         cols=1,
-        shared_xaxes=False,  # Shared_xaxes is controlled per-plot below for numerical type
+        shared_xaxes=False,
         vertical_spacing=0.03,
         subplot_titles=subplot_titles,
     )
@@ -745,7 +792,6 @@ def profile(  # Renamed function to profile
         if col_type == "categorical":
             sorted_categories = item["data"]["categories"]
             sorted_counts = item["data"]["counts"]
-
             fig.add_trace(
                 go.Bar(y=sorted_categories, x=sorted_counts, orientation="h", marker_color="steelblue", name=col_name),
                 row=current_row,
@@ -759,29 +805,19 @@ def profile(  # Renamed function to profile
 
         elif col_type == "numerical":
             col_data = item["data"]
-
-            # Calculate common x-axis range for histogram and boxplot for alignment
             min_val = np.min(col_data)
             max_val = np.max(col_data)
-            # Add a small padding to the range for better visualization
             x_range = [min_val - (max_val - min_val) * 0.05, max_val + (max_val - min_val) * 0.05]
 
             fig.add_trace(
-                go.Histogram(
-                    x=col_data,
-                    name=col_name,
-                    marker_color="steelblue",
-                    xbins=dict(size=None),
-                ),
+                go.Histogram(x=col_data, name=col_name, marker_color="steelblue"),
                 row=current_row,
                 col=1,
             )
             fig.update_yaxes(title_text="Frequency", title_font_size=18, tickfont_size=16, row=current_row, col=1)
-            # Apply the calculated common x_range
             fig.update_xaxes(
                 title_text="Value", title_font_size=18, tickfont_size=16, range=x_range, row=current_row, col=1
             )
-
             current_row += 1
 
             fig.add_trace(
@@ -799,7 +835,6 @@ def profile(  # Renamed function to profile
                 col=1,
             )
             fig.update_yaxes(visible=False, row=current_row, col=1)
-            # Apply the same common x_range to the boxplot's x-axis
             fig.update_xaxes(
                 title_text="Value", title_font_size=18, tickfont_size=16, range=x_range, row=current_row, col=1
             )
@@ -815,12 +850,7 @@ def profile(  # Renamed function to profile
             current_row += 1
 
     fig.update_layout(
-        title={
-            "text": "Comprehensive Data Distribution Analysis",
-            "font_size": 28,
-            "x": 0.5,
-            "xanchor": "center",
-        },
+        title={"text": "Comprehensive Data Distribution Analysis", "font_size": 28, "x": 0.5, "xanchor": "center"},
         height=400 * total_rows,
         width=1200,
         showlegend=False,
@@ -837,45 +867,33 @@ def profile(  # Renamed function to profile
 
 def profile_bivariate(
     df: pl.DataFrame,
-    column_pairs: List[Tuple[str, str]],  # List of tuples, e.g., [("col1", "col2"), ("col3", "col4")]
+    column_pairs: List[Tuple[str, str]],
     output_filename: str = "./samples/bivariate_report.html",
-    date_format: str = "%Y-%m-%d %H:%M",  # Format for parsing string dates
+    date_format: str = "%Y-%m-%d %H:%M",
 ):
     if df.is_empty():
         print("Warning: Input DataFrame is empty. No bivariate charts will be generated.")
         return
 
-    plots_to_add = []  # Stores actual Plotly trace objects
-    subplot_titles = []  # Stores titles for each subplot
-
-    # --- Step 1: Pre-process string columns that might be dates ---
-    # Create a cloned DataFrame where string columns that successfully parse as dates are converted to Datetime.
     processed_df = df.clone()
     for col_name in df.columns:
         series = df.get_column(col_name)
         if series.dtype == pl.String:
             try:
-                # Attempt to parse string as datetime with the specified format.
-                parsed_datetime_series = series.str.to_datetime(format=date_format, strict=False)
-                # If conversion is successful and has non-null datetime values, cast the column in the cloned df.
-                # drop_nulls().len() > 0 ensures there are actual valid datetimes, not just all nulls from failed parse.
-                if parsed_datetime_series.dtype == pl.Datetime and parsed_datetime_series.drop_nulls().len() > 0:
-                    processed_df = processed_df.with_columns(parsed_datetime_series.alias(col_name))
+                parsed = _parse_date_column(pl.lit(series), date_format).to_series()
+                if parsed.dtype == pl.Datetime and parsed.drop_nulls().len() > 0:
+                    processed_df = processed_df.with_columns(parsed.alias(col_name))
             except Exception:
-                # If parsing fails or is not a date string, keep it as String/Categorical.
                 pass
 
-    # --- Step 2: Determine plot type and prepare traces for each pair ---
+    plots_to_add = []
+    subplot_titles = []
+
     for col1_name, col2_name in column_pairs:
         if col1_name not in processed_df.columns or col2_name not in processed_df.columns:
             print(f"Warning: One or both columns '{col1_name}', '{col2_name}' not found in DataFrame. Skipping pair.")
             continue
 
-        s1 = processed_df.get_column(col1_name)
-        s2 = processed_df.get_column(col2_name)
-
-        # Ensure non-empty after dropping nulls for both series
-        # Drop rows where EITHER column has a null value for the pair-wise plot
         paired_df_cleaned = processed_df.select([col1_name, col2_name]).drop_nulls()
         if paired_df_cleaned.is_empty():
             print(f"Warning: Pair ({col1_name}, {col2_name}) is empty after dropping nulls. Skipping plot.")
@@ -883,15 +901,12 @@ def profile_bivariate(
 
         s1_cleaned = paired_df_cleaned.get_column(col1_name)
         s2_cleaned = paired_df_cleaned.get_column(col2_name)
-
-        # Get the effective data types (after string-to-datetime attempt in processed_df)
         type1 = s1_cleaned.dtype
         type2 = s2_cleaned.dtype
 
         trace = None
-        plot_type_key = ""  # For axis labeling and specific updates
+        plot_type_key = ""
 
-        # 1. Numerical (X) vs Numerical (Y)
         if type1.is_numeric() and type2.is_numeric():
             trace = go.Scatter(
                 x=s1_cleaned.to_numpy(),
@@ -900,18 +915,15 @@ def profile_bivariate(
                 marker=dict(color="steelblue", opacity=0.7, size=8),
                 name=f"{col2_name} vs {col1_name}",
                 showlegend=False,
-            )  # No legend for scatter
+            )
             plot_type_key = "num_num_scatter"
             subplot_titles.append(f"Scatter Plot: {col1_name} vs {col2_name}")
 
-        # 2. Numerical (X) vs Categorical (Y)
         elif (type1.is_numeric() and (type2 == pl.String or type2 == pl.Categorical)) or (
             (type1 == pl.String or type1 == pl.Categorical) and type2.is_numeric()
         ):
-
             num_s_cleaned = s1_cleaned if type1.is_numeric() else s2_cleaned
             cat_s_cleaned = s2_cleaned if type1.is_numeric() else s1_cleaned
-
             trace = go.Box(
                 x=num_s_cleaned.to_numpy(),
                 y=cat_s_cleaned.to_numpy(),
@@ -919,95 +931,68 @@ def profile_bivariate(
                 marker_color="steelblue",
                 name=f"{num_s_cleaned.name} by {cat_s_cleaned.name}",
                 showlegend=False,
-            )  # No legend for box plot
+            )
             plot_type_key = "num_cat_box"
             subplot_titles.append(f"Box Plot: {num_s_cleaned.name} by {cat_s_cleaned.name}")
 
-        # 3. Categorical (X) vs Categorical (Y) - STACKED BAR CHART
         elif (type1 == pl.String or type1 == pl.Categorical) and (type2 == pl.String or type2 == pl.Categorical):
-
-            # Compute cross-tabulation and pivot for stacking
-            counts_df_for_bar = processed_df.group_by(col1_name, col2_name).len().rename({"len": "count"})
-
-            # Get all unique categories from col1_name to ensure full axis coverage (Y-axis)
-            all_cat1_values = processed_df.get_column(col1_name).unique().sort().to_numpy()
-
-            # Iterate through each unique value of col2_name (which will be a stack segment)
-            traces_for_stack = []
-            all_cat2_values = processed_df.get_column(col2_name).unique().sort().to_numpy()
-
-            # For each unique value in col2_name, create a Bar trace
-            for cat2_val in all_cat2_values:
-                subset_counts_df = counts_df_for_bar.filter(pl.col(col2_name) == cat2_val)
-
-                # Create a Polars DataFrame for all unique col1_name values to ensure full alignment
-                full_cat1_df = pl.DataFrame({col1_name: all_cat1_values})
-
-                # Left join to ensure all col1_name categories are present, filling missing counts with 0.
-                # Then sort by col1_name for consistent plotting order on Y-axis.
-                merged_counts = (
-                    full_cat1_df.join(subset_counts_df, on=col1_name, how="left").fill_null(0).sort(col1_name)
-                )
-
-                # Show segment name as text on bars. Count is available on hover.
-                traces_for_stack.append(
+            counts_df = processed_df.group_by(col1_name, col2_name).len().rename({"len": "count"})
+            all_cat1 = processed_df.get_column(col1_name).unique().sort().to_numpy()
+            all_cat2 = processed_df.get_column(col2_name).unique().sort().to_numpy()
+            traces = []
+            for cat2_val in all_cat2:
+                subset = counts_df.filter(pl.col(col2_name) == cat2_val)
+                full_cat1_df = pl.DataFrame({col1_name: all_cat1})
+                merged = full_cat1_df.join(subset, on=col1_name, how="left").fill_null(0).sort(col1_name)
+                traces.append(
                     go.Bar(
-                        x=merged_counts.get_column("count").to_numpy(),
-                        y=merged_counts.get_column(col1_name).to_numpy(),
-                        orientation="h",  # Horizontal bars
-                        name=str(cat2_val),  # Name for legend (category from col2)
-                        hoverinfo="x+y+name+text",  # Show count, category1, category2, and text on hover
+                        x=merged["count"].to_numpy(),
+                        y=merged[col1_name].to_numpy(),
+                        orientation="h",
+                        name=str(cat2_val),
+                        hoverinfo="x+y+name+text",
                         text=np.where(
-                            merged_counts.get_column("count").to_numpy() > 0,
-                            merged_counts.get_column(col2_name).to_numpy(),
+                            merged["count"].to_numpy() > 0,
+                            np.full(merged.height, str(cat2_val)),
                             "",
-                        ),  # Display segment name for non-zero counts
-                        textposition="auto",  # Automatically position text
+                        ),
+                        textposition="auto",
                     )
                 )
-
-            trace = traces_for_stack  # This will be a list of traces
+            trace = traces
             plot_type_key = "cat_cat_stacked_bar"
             subplot_titles.append(f"Stacked Bar Plot: {col1_name} by {col2_name} (Counts)")
 
-        # 4. Datetime (X) vs Numerical (Y)
         elif (type1 == pl.Datetime and type2.is_numeric()) or (type1.is_numeric() and type2 == pl.Datetime):
-
-            dt_s_cleaned = s1_cleaned if type1 == pl.Datetime else s2_cleaned
-            num_s_cleaned = s2_cleaned if type1 == pl.Datetime else s1_cleaned
-
+            dt_s = s1_cleaned if type1 == pl.Datetime else s2_cleaned
+            num_s = s2_cleaned if type1 == pl.Datetime else s1_cleaned
             trace = go.Scatter(
-                x=dt_s_cleaned.to_numpy(),
-                y=num_s_cleaned.to_numpy(),
+                x=dt_s.to_numpy(),
+                y=num_s.to_numpy(),
                 mode="lines+markers",
-                name=f"{num_s_cleaned.name} over {dt_s_cleaned.name}",
+                name=f"{num_s.name} over {dt_s.name}",
                 marker_color="steelblue",
                 showlegend=False,
-            )  # No legend for line
+            )
             plot_type_key = "dt_num_line"
-            subplot_titles.append(f"Time Series: {num_s_cleaned.name} over {dt_s_cleaned.name}")
+            subplot_titles.append(f"Time Series: {num_s.name} over {dt_s.name}")
 
-        # 5. Datetime (X) vs Categorical (Y)
         elif (type1 == pl.Datetime and (type2 == pl.String or type2 == pl.Categorical)) or (
             (type1 == pl.String or type1 == pl.Categorical) and type2 == pl.Datetime
         ):
-
-            dt_s_cleaned = s1_cleaned if type1 == pl.Datetime else s2_cleaned
-            cat_s_cleaned = s2_cleaned if type1 == pl.Datetime else s1_cleaned
-
-            # A box plot showing the distribution of dates for each category
+            dt_s = s1_cleaned if type1 == pl.Datetime else s2_cleaned
+            cat_s = s2_cleaned if type1 == pl.Datetime else s1_cleaned
             trace = go.Box(
-                x=dt_s_cleaned.to_numpy(),
-                y=cat_s_cleaned.to_numpy(),
+                x=dt_s.to_numpy(),
+                y=cat_s.to_numpy(),
                 orientation="h",
-                name=f"Date Distribution by {cat_s_cleaned.name}",
+                name=f"Date Distribution by {cat_s.name}",
                 marker_color="steelblue",
                 showlegend=False,
-            )  # No legend for box plot
+            )
             plot_type_key = "dt_cat_box"
-            subplot_titles.append(f"Date Distribution: {dt_s_cleaned.name} by {cat_s_cleaned.name}")
+            subplot_titles.append(f"Date Distribution: {dt_s.name} by {cat_s.name}")
 
-        # 6. Datetime (X) vs Datetime (Y)
         elif type1 == pl.Datetime and type2 == pl.Datetime:
             trace = go.Scatter(
                 x=s1_cleaned.to_numpy(),
@@ -1016,7 +1001,7 @@ def profile_bivariate(
                 marker=dict(color="steelblue", opacity=0.7, size=8),
                 name=f"{col2_name} vs {col1_name}",
                 showlegend=False,
-            )  # No legend for scatter
+            )
             plot_type_key = "dt_dt_scatter"
             subplot_titles.append(f"Scatter Plot: {col1_name} vs {col2_name}")
 
@@ -1039,45 +1024,40 @@ def profile_bivariate(
         print("No suitable column pairs found for plotting. No chart will be generated.")
         return
 
-    # Create subplots
-    # Each plot generally takes 1 row. Height can be adjusted based on total plots.
     fig = make_subplots(
         rows=len(plots_to_add),
         cols=1,
-        vertical_spacing=0.03,  # Adjusted spacing between subplots
+        vertical_spacing=0.03,
         subplot_titles=subplot_titles,
     )
 
-    # Add traces and update axis properties
     for i, plot_info in enumerate(plots_to_add):
-        trace_data = plot_info["trace"]  # Can be a single trace or a list of traces
+        trace_data = plot_info["trace"]
         col1_name = plot_info["col1_name"]
         col2_name = plot_info["col2_name"]
         plot_type_key = plot_info["plot_type_key"]
-        type1, type2 = plot_info["types"]  # Effective types from processed_df
+        type1, type2 = plot_info["types"]
 
-        if isinstance(trace_data, list):  # If it's a list of traces (for stacked bars)
+        if isinstance(trace_data, list):
             for single_trace in trace_data:
                 fig.add_trace(single_trace, row=i + 1, col=1)
-        else:  # Single trace
+        else:
             fig.add_trace(trace_data, row=i + 1, col=1)
 
-        # Set axis titles and types dynamically
         xaxis_title = col1_name
         yaxis_title = col2_name
-        xaxis_type = None  # Default
-        yaxis_type = None  # Default
+        xaxis_type = None
+        yaxis_type = None
 
-        # Adjust titles and types based on plot_type_key
         if plot_type_key == "num_cat_box":
             num_s_name = col1_name if type1.is_numeric() else col2_name
             cat_s_name = col2_name if type1.is_numeric() else col1_name
             xaxis_title = num_s_name
             yaxis_title = cat_s_name
-            yaxis_type = "category"  # Y-axis for categorical in horizontal boxplot
-        elif plot_type_key == "cat_cat_stacked_bar":  # Adjusted for stacked bar
-            xaxis_title = "Count"  # X-axis is count for stacked bar
-            yaxis_title = col1_name  # Y-axis is the primary category
+            yaxis_type = "category"
+        elif plot_type_key == "cat_cat_stacked_bar":
+            xaxis_title = "Count"
+            yaxis_title = col1_name
             xaxis_type = "linear"
             yaxis_type = "category"
         elif plot_type_key == "dt_num_line":
@@ -1099,7 +1079,6 @@ def profile_bivariate(
             xaxis_type = "date"
             yaxis_type = "date"
 
-        # Apply updates to the specific subplot axes
         fig.update_xaxes(
             title_text=xaxis_title, title_font_size=18, tickfont_size=16, type=xaxis_type, row=i + 1, col=1
         )
@@ -1113,67 +1092,15 @@ def profile_bivariate(
             col=1,
         )
 
-    # Calculate global x-axis range for numerical and datetime plots to align them
-    all_numeric_and_datetime_data = []
-    for col_name in processed_df.columns:
-        series = processed_df.get_column(col_name)
-        if series.dtype.is_numeric() or series.dtype == pl.Datetime:
-            non_null_data = series.drop_nulls().to_numpy()
-            if non_null_data.size > 0:
-                all_numeric_and_datetime_data.extend(non_null_data)
-
-    x_range = None
-    if all_numeric_and_datetime_data:
-        # Convert to appropriate type for min/max
-        # Check if the data contains datetime objects before converting to timestamp
-        # Ensure only non-datetime objects are passed to numpy.min/max for non-datetime columns
-        if all(isinstance(x, (np.datetime64, pl.Datetime)) for x in all_numeric_and_datetime_data):
-            # Attempt to convert all datetime-like objects to Python datetime objects for .timestamp()
-            converted_timestamps = []
-            for dt_obj in all_numeric_and_datetime_data:
-                if isinstance(dt_obj, np.datetime64):
-                    # Convert numpy datetime64 to pandas Timestamp, then to python datetime
-                    converted_timestamps.append(pd.Timestamp(dt_obj).to_pydatetime())
-                elif isinstance(dt_obj, pl.Datetime):
-                    # Polars Datetime is usually a wrapper around numpy.datetime64,
-                    # directly convert to string then to python datetime for robustness
-                    converted_timestamps.append(pd.to_datetime(str(dt_obj)).to_pydatetime())
-                else:
-                    # Fallback for unexpected types, though should be covered by type check
-                    converted_timestamps.append(dt_obj)
-
-            all_numeric_and_datetime_data = np.array(
-                [dt.timestamp() * 1000 for dt in converted_timestamps if hasattr(dt, "timestamp")]
-            )  # milliseconds
-            if all_numeric_and_datetime_data.size > 0:  # Ensure there's data after conversion
-                x_range = [np.min(all_numeric_and_datetime_data), np.max(all_numeric_and_datetime_data)]
-        elif all(isinstance(x, (int, float, np.integer, np.floating)) for x in all_numeric_and_datetime_data):
-            x_range = [np.min(all_numeric_and_datetime_data), np.max(all_numeric_and_datetime_data)]
-
-    # Update overall layout
     fig.update_layout(
-        title={
-            "text": "Bivariate Data Analysis Report",
-            "font_size": 28,
-            "x": 0.5,
-            "xanchor": "center",
-        },
-        height=500 * len(plots_to_add),  # Dynamic height based on number of plots
+        title={"text": "Bivariate Data Analysis Report", "font_size": 28, "x": 0.5, "xanchor": "center"},
+        height=500 * len(plots_to_add),
         width=1200,
-        showlegend=False,  # Global legend is now only shown for traces that explicitly have showlegend=True (i.e., stacked bars)
-        margin=dict(t=100, b=50, l=50, r=50),  # Top margin for title, others for general layout
-        barmode="stack",  # Enable stacking for all bar charts in the figure
+        showlegend=False,
+        margin=dict(t=100, b=50, l=50, r=50),
+        barmode="stack",
     )
 
-    # Apply shared x-axis range for numeric and datetime plots
-    if x_range is not None:
-        for i, plot_info in enumerate(plots_to_add):
-            type1, type2 = plot_info["types"]
-            # Only apply shared range if at least one axis is numeric or datetime
-            if type1.is_numeric() or type1 == pl.Datetime or type2.is_numeric() or type2 == pl.Datetime:
-                fig.update_xaxes(range=x_range, row=i + 1, col=1)
-
-    # Save the HTML file
     try:
         fig.write_html(output_filename, auto_open=False)
         print(f"Bivariate charts saved to: '{output_filename}'.")
