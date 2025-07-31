@@ -635,3 +635,46 @@ def test_month_window_yyyymm_format():
     result_sorted = result.collect().select(expected.columns)
 
     assert_frame_equal(result_sorted, expected, check_column_order=False, check_dtypes=False)
+
+
+def test_month_window_no_data_in_window():
+    df_data = pl.DataFrame(
+        {
+            "date_str": ["202201", "202212"],  # 完全にウィンドウ外
+            "value": [100, 200],
+            "base_id": ["B1", "B1"],
+        }
+    ).lazy()
+
+    df_base = pl.DataFrame(
+        {
+            "date_str": ["202303"],
+            "base_id": ["B1"],
+        }
+    ).lazy()
+
+    result = month_window(
+        df_base=df_base,
+        df_data=df_data,
+        date_col="date_str",
+        date_format="%Y%m",
+        value_cols=["value"],
+        months_list=[1, -1],
+        new_col_name_prefix="metric",
+        metrics=["mean", "sum"],
+        keys=["base_id"],
+    )
+
+    expected = pl.DataFrame(
+        {
+            "base_id": ["B1"],
+            "metric_value_mean_future_1m": [None],
+            "metric_value_sum_future_1m": [None],
+            "metric_value_mean_past_1m": [None],
+            "metric_value_sum_past_1m": [None],
+        }
+    )
+
+    result_sorted = result.collect().select(expected.columns)
+
+    assert_frame_equal(result_sorted, expected, check_column_order=False, check_dtypes=False)

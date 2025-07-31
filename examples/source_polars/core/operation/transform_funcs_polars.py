@@ -147,12 +147,10 @@ def _parse_date_column(column: pl.Expr, fmt: str) -> pl.Expr:
 
 def month_window(
     df_base: pl.LazyFrame,
-    date_col_base: str,
-    date_format_base: str,
     df_data: pl.LazyFrame,
-    date_col_data: str,
-    value_col_data: str,
-    date_format_data: str,
+    date_col: str,
+    date_format: str,
+    value_cols: List[str],
     months_list: List[int],
     new_col_name_prefix: str = "future_value",
     metrics: List[str] = ["mean", "sum", "max"],
@@ -166,17 +164,19 @@ def month_window(
     _join_key = "__mw_join_key__"
 
     # base 側：日時 + キー連結列 + 行ID
-    df_base_processed = (
-        df_base.with_columns(
-            _parse_date_column(pl.col(date_col_base), date_format_base).cast(pl.Datetime("us")).alias(_base_date)
-        )
-        .with_columns(
-            pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
-            if keys
-            else pl.lit("").alias(_join_key)
-        )
-        .with_row_index(_row_id)
-    )
+    df_base_processed = df_base.with_columns(
+        [
+            pl.col(date_col)
+            .str.strptime(pl.Datetime, date_format, strict=False)
+            .cast(pl.Datetime("us"))
+            .alias(_base_date),
+            (
+                pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
+                if keys
+                else pl.lit("").alias(_join_key)
+            ),
+        ]
+    ).with_row_index(_row_id)
 
     results = []
 
@@ -185,25 +185,22 @@ def month_window(
         direction = "past" if m < 0 else "future"
         join_strategy = "forward" if m < 0 else "backward"
 
-        # data 側：日時 + キー連結列
-        df_data_corrected = (
-            df_data.with_columns(
+        df_data_corrected = df_data.with_columns(
+            [
                 (
-                    _parse_date_column(pl.col(date_col_data), date_format_data)
+                    pl.col(date_col).str.strptime(pl.Datetime, date_format, strict=False)
                     + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
-                ).alias(_data_date)
-            )
-            .with_columns(
-                pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
-                if keys
-                else pl.lit("").alias(_join_key)
-            )
-            .sort([_join_key, _data_date])
-        )
+                ).alias(_data_date),
+                (
+                    pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
+                    if keys
+                    else pl.lit("").alias(_join_key)
+                ),
+            ]
+        ).sort([_join_key, _data_date])
 
         df_base_sorted = df_base_processed.sort([_join_key, _base_date])
 
-        # join_asof: 補助キー + 日時
         df_joined = df_data_corrected.join_asof(
             df_base_sorted,
             left_on=_data_date,
@@ -212,32 +209,30 @@ def month_window(
             strategy=join_strategy,
         )
 
-        # 集計ウィンドウ
-        if m < 0:
-            df_joined = df_joined.with_columns(
-                [
-                    pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_start),
-                    pl.col(_base_date).alias(_window_end),
-                ]
-            )
-        else:
-            df_joined = df_joined.with_columns(
-                [
-                    pl.col(_base_date).alias(_window_start),
-                    pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_end),
-                ]
-            )
+        df_joined = df_joined.with_columns(
+            [
+                (
+                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_start)
+                    if m < 0
+                    else pl.col(_base_date).alias(_window_start)
+                ),
+                (
+                    (pl.col(_base_date)).alias(_window_end)
+                    if m < 0
+                    else pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_end)
+                ),
+            ]
+        )
 
-        # フィルタ適用
         df_filtered = df_joined.filter(
             (pl.col(_data_date) >= pl.col(_window_start)) & (pl.col(_data_date) < pl.col(_window_end))
         )
 
-        # 集計定義
-        aggs = [
-            getattr(pl.col(value_col_data), metric)().alias(f"{new_col_name_prefix}_{metric}_{direction}{suffix}")
-            for metric in metrics
-        ]
+        aggs = []
+        for col in value_cols:
+            for metric in metrics:
+                alias_name = f"{new_col_name_prefix}_{col}_{metric}_{direction}{suffix}"
+                aggs.append(getattr(pl.col(col), metric)().alias(alias_name))
 
         df_agg = df_filtered.group_by(keys + [_row_id]).agg(aggs)
         results.append(df_agg)
