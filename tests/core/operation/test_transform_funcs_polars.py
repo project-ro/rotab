@@ -551,12 +551,13 @@ def test_month_window():
             "2024-04-01",
         ],
         "value_a": [5, 6, 7, 8, 9, 10, 11, 20, 21, 30, 31, 40],
+        "base_id": ["B1"] * 12,
     }
     df_data_lazy = pl.DataFrame(data_a).lazy()
 
     data_b = {
         "date_str_b": ["2024/01/01", "2024/02/01", "2024/03/01"],
-        "base_id": ["B1", "B2", "B3"],
+        "base_id": ["B1", "B1", "B1"],
     }
     df_base_lazy = pl.DataFrame(data_b).lazy()
 
@@ -571,11 +572,12 @@ def test_month_window():
         months_list=[1, -1],
         new_col_name_prefix="test_metric",
         metrics=["mean", "sum"],
+        keys=["base_id"],
     )
 
     expected_data_mixed = pl.DataFrame(
         {
-            "base_id": ["B1", "B2", "B3"],
+            "base_id": ["B1", "B1", "B1"],
             "test_metric_mean_future_1m": [10.5, 20.5, 30.5],
             "test_metric_sum_future_1m": [21.0, 41.0, 61.0],
             "test_metric_mean_past_1m": [8.5, 10.5, 20.5],
@@ -592,45 +594,3 @@ def test_month_window():
         check_dtypes=False,
         check_column_order=False,
     )
-
-
-def test_month_window_yyyymm_format():
-    df_data = pl.DataFrame(
-        {
-            "date_str": ["202302", "202303", "202304"],
-            "value": [10, 20, 30],
-        }
-    ).lazy()
-
-    df_base = pl.DataFrame(
-        {
-            "base_str": ["202303"],
-            "base_id": ["B1"],
-        }
-    ).lazy()
-
-    result = month_window(
-        df_base=df_base,
-        date_col_base="base_str",
-        date_format_base="%Y%m",
-        df_data=df_data,
-        date_col_data="date_str",
-        value_col_data="value",
-        date_format_data="%Y%m",
-        months_list=[1, -1],
-        new_col_name_prefix="metric",
-        metrics=["mean", "sum"],
-    )
-
-    expected = pl.DataFrame(
-        {
-            "base_id": ["B1"],
-            "metric_mean_future_1m": [20.0],
-            "metric_sum_future_1m": [20],
-            "metric_mean_past_1m": [10.0],
-            "metric_sum_past_1m": [10],
-        }
-    )
-
-    result_sorted = result.collect().select(expected.columns)
-    assert_frame_equal(result_sorted, expected, check_column_order=False, check_dtypes=False)

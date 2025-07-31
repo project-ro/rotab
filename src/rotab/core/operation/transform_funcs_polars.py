@@ -156,16 +156,27 @@ def month_window(
     months_list: List[int],
     new_col_name_prefix: str = "future_value",
     metrics: List[str] = ["mean", "sum", "max"],
+    keys: List[str] = [],
 ) -> pl.LazyFrame:
     _base_date = "__mw_base_date__"
     _data_date = "__mw_data_date__"
     _row_id = "__mw_row_id__"
     _window_start = "__mw_window_start__"
     _window_end = "__mw_window_end__"
+    _join_key = "__mw_join_key__"
 
-    df_base_processed = df_base.with_columns(
-        _parse_date_column(pl.col(date_col_base), date_format_base).cast(pl.Datetime("us")).alias(_base_date)
-    ).with_row_index(_row_id)
+    # base 側：日時 + キー連結列 + 行ID
+    df_base_processed = (
+        df_base.with_columns(
+            _parse_date_column(pl.col(date_col_base), date_format_base).cast(pl.Datetime("us")).alias(_base_date)
+        )
+        .with_columns(
+            pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
+            if keys
+            else pl.lit("").alias(_join_key)
+        )
+        .with_row_index(_row_id)
+    )
 
     results = []
 
@@ -174,26 +185,38 @@ def month_window(
         direction = "past" if m < 0 else "future"
         join_strategy = "forward" if m < 0 else "backward"
 
-        df_data_corrected = df_data.with_columns(
-            (
-                _parse_date_column(pl.col(date_col_data), date_format_data)
-                + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
-            ).alias(_data_date)
-        ).sort(_data_date)
+        # data 側：日時 + キー連結列
+        df_data_corrected = (
+            df_data.with_columns(
+                (
+                    _parse_date_column(pl.col(date_col_data), date_format_data)
+                    + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
+                ).alias(_data_date)
+            )
+            .with_columns(
+                pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
+                if keys
+                else pl.lit("").alias(_join_key)
+            )
+            .sort([_join_key, _data_date])
+        )
 
-        df_base_sorted = df_base_processed.sort(_base_date)
+        df_base_sorted = df_base_processed.sort([_join_key, _base_date])
 
+        # join_asof: 補助キー + 日時
         df_joined = df_data_corrected.join_asof(
             df_base_sorted,
             left_on=_data_date,
             right_on=_base_date,
+            by=_join_key,
             strategy=join_strategy,
         )
 
+        # 集計ウィンドウ
         if m < 0:
             df_joined = df_joined.with_columns(
                 [
-                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_start),
+                    pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_start),
                     pl.col(_base_date).alias(_window_end),
                 ]
             )
@@ -201,27 +224,29 @@ def month_window(
             df_joined = df_joined.with_columns(
                 [
                     pl.col(_base_date).alias(_window_start),
-                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_end),
+                    pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_end),
                 ]
             )
 
+        # フィルタ適用
         df_filtered = df_joined.filter(
             (pl.col(_data_date) >= pl.col(_window_start)) & (pl.col(_data_date) < pl.col(_window_end))
         )
 
+        # 集計定義
         aggs = [
             getattr(pl.col(value_col_data), metric)().alias(f"{new_col_name_prefix}_{metric}_{direction}{suffix}")
             for metric in metrics
         ]
 
-        df_agg = df_filtered.group_by(_row_id).agg(aggs)
+        df_agg = df_filtered.group_by(keys + [_row_id]).agg(aggs)
         results.append(df_agg)
 
     final_df = df_base_processed
     for res_df in results:
-        final_df = final_df.join(res_df, on=_row_id, how="left")
+        final_df = final_df.join(res_df, on=keys + [_row_id], how="left")
 
-    return final_df.drop(_row_id).drop(_base_date)
+    return final_df.drop(_row_id).drop(_base_date).drop(_join_key)
 
 
 def is_date_column(series: pl.Series, fmt: str = "%Y-%m-%d") -> bool:
