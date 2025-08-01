@@ -20,7 +20,7 @@ def step_summarize_transactions_trans_summary(trans):
 
 def trans_summary():
     """Summarize transaction amounts"""
-    trans = pl.scan_csv("data/inputs/transaction.csv")
+    trans = pl.scan_csv("data/inputs/transaction.csv", dtypes={"id": pl.Utf8, "user_id": pl.Utf8, "amount": pl.Int64})
     filtered_transactions = step_summarize_transactions_trans_summary(trans)
     filtered_transactions = filtered_transactions.with_columns(pl.col("user_id").cast(pl.Utf8))
     filtered_transactions = filtered_transactions.with_columns(pl.col("amount").cast(pl.Int64))

@@ -25,7 +25,7 @@ processes:
         - name: final_output
           io_type: csv
           path: ../../source/outputs/final_output.csv
-          schema: final_output
+          # schema: final_output
 
     steps:
       - name: filter_users_main

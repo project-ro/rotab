@@ -148,10 +148,8 @@ class OutputNode(IOBaseNode):
 
         schema_key = self.schema_name if self.schema_name else self.name
 
-        if schema_key in context.schemas:
-            pass
-        elif self.schema_name:
-            raise ValueError(f"[{self.name}] Schema '{self.schema_name}' not found in scope.")
+        if schema_key not in context.schemas:
+            raise ValueError(f"[{self.name}] Schema '{schema_key}' not found in scope.")
 
     def generate_script(self, backend: str = "pandas", context: ValidationContext = None) -> List[str]:
         if context is None:
