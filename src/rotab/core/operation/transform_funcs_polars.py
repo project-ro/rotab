@@ -1,5 +1,5 @@
 import polars as pl
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import date
 import numpy as np
 import pandas as pd
@@ -110,8 +110,74 @@ def reshape(
         raise ValueError("Invalid combination of parameters for reshape.")
 
 
-def fillna(table: pl.DataFrame, mapping: Dict[str, Any]) -> pl.DataFrame:
-    return table.with_columns([pl.col(k).fill_null(v) for k, v in mapping.items()])
+def fillna(
+    table: pl.DataFrame,
+    values: Optional[Dict[str, Any]] = None,
+    strategies: Optional[Dict[str, str]] = None,
+) -> pl.DataFrame:
+    """
+    Fill null values in the given DataFrame using either fixed values or predefined strategies.
+
+    Args:
+        table (pl.DataFrame): The input Polars DataFrame.
+        values (Optional[Dict[str, Any]]): A dictionary mapping column names to fixed fill values.
+            These take precedence over strategies if both are provided for the same column.
+        strategies (Optional[Dict[str, str]]): A dictionary mapping column names to fill strategies.
+            Supported strategies:
+                - "mean": fill with the mean of the column
+                - "median": fill with the median of the column
+                - "mode": fill with the most frequent value
+                - "min": fill with the minimum value
+                - "max": fill with the maximum value
+                - "zero": fill with 0
+                - "forward": forward fill
+                - "backward": backward fill
+
+    Returns:
+        pl.DataFrame: A new DataFrame with null values filled accordingly.
+
+    Raises:
+        ValueError: If an unknown strategy is provided.
+    """
+    values = values or {}
+    strategies = strategies or {}
+
+    def get_fill_value(col: pl.Series, method: str):
+        method = method.lower()
+        if method == "mean":
+            return col.mean()
+        elif method == "median":
+            return col.median()
+        elif method == "mode":
+            mode_vals = col.mode()
+            return mode_vals[0] if len(mode_vals) > 0 else None
+        elif method == "min":
+            return col.min()
+        elif method == "max":
+            return col.max()
+        elif method == "zero":
+            return 0
+        else:
+            raise ValueError(f"Unknown strategy: {method}")
+
+    filled_columns = []
+
+    for col_name in table.columns:
+        if col_name in values:
+            val = values[col_name]
+            filled_columns.append(pl.col(col_name).fill_null(val))
+        elif col_name in strategies:
+            method = strategies[col_name].lower()
+
+            if method in {"forward", "backward"}:
+                filled_columns.append(pl.col(col_name).fill_null(strategy=method))
+            else:
+                val = get_fill_value(table[col_name], method)
+                filled_columns.append(pl.col(col_name).fill_null(val))
+        else:
+            filled_columns.append(pl.col(col_name))
+
+    return table.with_columns(filled_columns)
 
 
 def sample(table: pl.DataFrame, frac: float) -> pl.DataFrame:
@@ -642,7 +708,7 @@ def plot_numerical_distribution(data: np.ndarray, column_name: str, output_filen
         print(f"An unexpected error occurred while saving the HTML file: {e}")
 
 
-def plot_timestamp_histogram(dates: np.ndarray, column_name: str):
+def plot_timeseries_histogram(dates: np.ndarray, column_name: str):
     # Ensure dates are in datetime format for proper Plotly handling
     # Convert various input types to datetime, handling potential errors
     try:
@@ -683,7 +749,7 @@ def plot_timestamp_histogram(dates: np.ndarray, column_name: str):
     )
 
     # Define output directory and ensure it exists
-    output_filename = f"./samples/{column_name}_timestamp_histogram.html"
+    output_filename = f"./samples/{column_name}_timeseries_histogram.html"
 
     try:
         fig.write_html(output_filename, auto_open=False)
@@ -1236,6 +1302,9 @@ def train_lgbm_with_optuna_multi_target(
         shap_df = pl.DataFrame(
             {"feature": features_for_model, "importance": [abs(v).mean() for v in shap_values.T]}
         ).sort("importance", descending=True)
+
+        shap_df_path = Path(model_path) / f"shap_values_{target}.csv"
+        shap_df.write_csv(shap_df_path)
 
         results[target] = (best_model, shap_df)
 

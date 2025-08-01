@@ -3,6 +3,21 @@ import polars as pl
 import shutil
 from pathlib import Path
 
+INDENT = "    "
+
+
+@pytest.fixture
+def sample_dataframe():
+    return pl.DataFrame(
+        {
+            "a": [1, 2, None, 4, None],
+            "b": [10.0, None, 30.0, None, 50.0],
+            "c": ["x", "y", None, "x", "z"],
+            "d": [None, 100, 200, 100, 300],
+            "e": [1, 2, 3, 4, 5],
+        }
+    )
+
 
 @pytest.fixture(scope="session")
 def setup_data_and_path(tmp_path_factory):
@@ -29,9 +44,9 @@ def setup_data_and_path(tmp_path_factory):
                 "202410",
             ],
             "customer_id": ["1", "2", "1", "2", "3", "1", "3", "2", "1", "3"],
-            "feature_1": [10, 20, 15, 25, 30, 12, 35, 22, 18, 28],
+            "feature_1": [10, None, 15, 25, 30, 12, 35, 22, 18, 28],
             "feature_2": [5, 8, 6, 9, 7, 5, 9, 8, 6, 7],
-            "target_1": [100, 150, 120, 180, 200, 110, 220, 160, 130, 210],
+            "target_1": [100, 150, 120, 180, None, 110, 220, 160, 130, 210],
             "target_2": [20, 30, 25, 35, 40, 22, 45, 32, 28, 42],
         }
     )

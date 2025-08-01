@@ -126,16 +126,89 @@ def test_reshape_melt():
     assert out["melted_value"].to_list() == [10]
 
 
-def test_fillna():
-    df = pl.DataFrame({"a": [None, 2]})
-    out = fillna(df, {"a": 0})
-    assert out["a"].to_list()[0] == 0
+@pytest.mark.parametrize(
+    "values, strategies, expected_a, expected_b, expected_c, expected_d",
+    [
+        ({"a": 99}, None, [1, 2, 99, 4, 99], None, None, None),
+        (None, {"b": "mean"}, None, [10.0, 30.0, 30.0, 30.0, 50.0], None, None),
+        (None, {"c": "mode"}, None, None, ["x", "y", "x", "x", "z"], None),
+        (None, {"d": "forward"}, None, None, None, [None, 100, 200, 100, 300]),
+        (
+            {"a": 99},
+            {"b": "mean"},
+            [1, 2, 99, 4, 99],
+            [10.0, 30.0, 30.0, 30.0, 50.0],
+            None,
+            None,
+        ),
+        (
+            None,
+            {"a": "min", "d": "forward"},
+            [1, 2, 1, 4, 1],
+            None,
+            None,
+            [None, 100, 200, 100, 300],
+        ),
+        (
+            None,
+            {"b": "median", "c": "mode"},
+            None,
+            [10.0, 30.0, 30.0, 30.0, 50.0],
+            ["x", "y", "x", "x", "z"],
+            None,
+        ),
+        (
+            {"a": 99},
+            {"a": "mean", "b": "median"},
+            [1, 2, 99, 4, 99],
+            [10.0, 30.0, 30.0, 30.0, 50.0],
+            None,
+            None,
+        ),
+    ],
+)
+def test_fillna_multiple_columns(sample_dataframe, values, strategies, expected_a, expected_b, expected_c, expected_d):
+    result = fillna(sample_dataframe, values, strategies)
+
+    if expected_a is not None:
+        assert list(result["a"]) == expected_a
+    if expected_b is not None:
+        assert list(result["b"]) == expected_b
+    if expected_c is not None:
+        assert list(result["c"]) == expected_c
+    if expected_d is not None:
+        assert list(result["d"]) == expected_d
+
+
+def test_fillna_no_nulls(sample_dataframe):
+    result = fillna(sample_dataframe, values={"e": 999})
+    assert result["e"].equals(sample_dataframe["e"])
+
+    result = fillna(sample_dataframe, strategies={"e": "mean"})
+    assert result["e"].equals(sample_dataframe["e"])
+
+
+def test_fillna_no_ops(sample_dataframe):
+    result = fillna(sample_dataframe, values=None, strategies=None)
+    assert result.equals(sample_dataframe)
+
+
+@pytest.mark.parametrize(
+    "strategies, error_msg",
+    [
+        ({"a": "unknown"}, "Unknown strategy: unknown"),
+        ({"b": "invalid"}, "Unknown strategy: invalid"),
+    ],
+)
+def test_fillna_invalid_strategy(sample_dataframe, strategies, error_msg):
+    with pytest.raises(ValueError, match=error_msg):
+        fillna(sample_dataframe, strategies=strategies)
 
 
 def test_sample():
     df = pl.DataFrame({"a": list(range(100))})
     out = sample(df, frac=0.1)
-    assert 5 <= out.height <= 15  # 許容範囲チェック
+    assert 5 <= out.height <= 15
 
 
 def test_concat():
