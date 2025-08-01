@@ -18,7 +18,6 @@ class ContextBuilder:
         self.backend = backend
 
     def _register_user_defined_functions(self, module_path: str):
-
         module_name = os.path.splitext(os.path.basename(module_path))[0]
         spec = importlib.util.spec_from_file_location(module_name, module_path)
         module = importlib.util.module_from_spec(spec)
@@ -37,7 +36,7 @@ class ContextBuilder:
         if not path:
             return {}
 
-        module_name = f"custom_module_{uuid.uuid4().hex}"  # 一意な名前で競合防止
+        module_name = f"custom_module_{uuid.uuid4().hex}"
         spec = importlib.util.spec_from_file_location(module_name, path)
         if spec is None or spec.loader is None:
             raise ValueError(f"Invalid Python file path or spec could not be loaded: {path}")
@@ -85,7 +84,6 @@ class ContextBuilder:
         return merged_scope
 
     def build(self, templates: List[TemplateNode]) -> ValidationContext:
-
         if self.derive_func_path is not None:
             self._register_user_defined_functions(self.derive_func_path)
 
@@ -100,10 +98,19 @@ class ContextBuilder:
                     available_vars.add(inp.name)
                     if inp.schema_name:
                         schemas[inp.name] = self.schema_manager.get_schema(inp.schema_name)
+                    else:
+                        schema = self.schema_manager.get_schema(inp.name, raise_error=False)
+                        if schema:
+                            schemas[inp.name] = schema
+
                 for out in proc.outputs:
                     available_vars.add(out.name)
                     if out.schema_name:
                         schemas[out.name] = self.schema_manager.get_schema(out.schema_name)
+                    else:
+                        schema = self.schema_manager.get_schema(out.name, raise_error=False)
+                        if schema:
+                            schemas[out.name] = schema
 
         return ValidationContext(
             derive_func_path=self.derive_func_path,

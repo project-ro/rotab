@@ -122,6 +122,7 @@ class ProcessNode(Node):
 
         # Input nodes
         for inp in self.inputs:
+            inp.validate(context)
             main_lines += [textwrap.indent(line, INDENT) for line in inp.generate_script(backend, context)]
 
         # Steps

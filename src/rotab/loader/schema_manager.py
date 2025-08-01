@@ -1,6 +1,6 @@
 import os
 import yaml
-from typing import Dict
+from typing import Dict, Optional
 from rotab.ast.context.validation_context import VariableInfo
 from rotab.utils.logger import get_logger
 
@@ -12,19 +12,24 @@ class SchemaManager:
         self.schema_dir = schema_dir
         self._cache: Dict[str, VariableInfo] = {}
 
-    def get_schema(self, name: str) -> VariableInfo:
+    def get_schema(self, name: str, raise_error: bool = True) -> Optional[VariableInfo]:
         if name in self._cache:
             return self._cache[name]
 
         yaml_path = os.path.join(self.schema_dir, f"{name}.yaml")
         yml_path = os.path.join(self.schema_dir, f"{name}.yml")
+        schema_path = None
 
         if os.path.exists(yaml_path):
             schema_path = yaml_path
         elif os.path.exists(yml_path):
             schema_path = yml_path
-        else:
-            raise FileNotFoundError(f"Schema file not found: {yaml_path} or {yml_path}")
+
+        if schema_path is None:
+            if raise_error:
+                raise FileNotFoundError(f"Schema file not found: {yaml_path} or {yml_path}")
+            else:
+                return None
 
         with open(schema_path, "r") as f:
             raw_schema = yaml.safe_load(f)

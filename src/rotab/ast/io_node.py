@@ -1,6 +1,5 @@
 import os
 import re
-import polars as pl
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 from typing import Optional, List, Literal
@@ -29,15 +28,15 @@ class InputNode(IOBaseNode):
     wildcard_column: Optional[str] = None
 
     def validate(self, context: ValidationContext) -> None:
-        if self.io_type != "csv":
-            raise ValueError(f"[{self.name}] Only 'csv' type is supported, got: {self.io_type}")
+        if self.io_type not in ["csv", "parquet"]:
+            raise ValueError(f"[{self.name}] Only 'csv' and 'parquet' types are supported, got: {self.io_type}")
 
         context.available_vars.add(self.name)
 
-        if self.schema_name:
-            if self.schema_name not in context.schemas:
-                raise ValueError(f"[{self.name}] Schema '{self.schema_name}' not found in scope.")
-            schema_info = context.schemas[self.schema_name]
+        schema_key_to_use = self.schema_name if self.schema_name else self.name
+
+        if schema_key_to_use in context.schemas:
+            schema_info = context.schemas[schema_key_to_use]
             context.schemas[self.name] = VariableInfo(type="dataframe", columns=schema_info.columns.copy())
         else:
             context.schemas[self.name] = VariableInfo(type="dataframe", columns={})
@@ -50,22 +49,36 @@ class InputNode(IOBaseNode):
         if not isinstance(var_info, VariableInfo):
             raise ValueError(f"[{self.name}] VariableInfo not found for input.")
 
-        # 型変換マップ（Polars用）
         polars_type_map = {"int": "Int64", "float": "Float64", "str": "Utf8", "bool": "Boolean"}
 
-        if backend == "pandas":
-            dtype_arg = f", dtype={repr(var_info.columns)}" if var_info.columns else ""
-        elif backend == "polars":
-            if var_info.columns:
-                dtype_dict = {
-                    col: f"pl.{polars_type_map.get(dtype, 'Utf8')}" for col, dtype in var_info.columns.items()
-                }
-                dtype_items = ", ".join([f'"{k}": {v}' for k, v in dtype_dict.items()])
-                dtype_arg = f", dtypes={{{dtype_items}}}"
+        dtype_arg = ""
+        read_func = ""
+
+        if self.io_type == "csv":
+            if backend == "pandas":
+                dtype_arg = f", dtype={repr(var_info.columns)}" if var_info.columns else ""
+                read_func = f"pd.read_csv"
+            elif backend == "polars":
+                if var_info.columns:
+                    dtype_dict = {
+                        col: f"pl.{polars_type_map.get(dtype, 'Utf8')}" for col, dtype in var_info.columns.items()
+                    }
+                    dtype_items = ", ".join([f'"{k}": {v}' for k, v in dtype_dict.items()])
+                    dtype_arg = f", dtypes={{{dtype_items}}}"
+                else:
+                    dtype_arg = ""
+                read_func = f"pl.scan_csv"
             else:
-                dtype_arg = ""
+                raise ValueError(f"Unsupported backend: {backend}")
+        elif self.io_type == "parquet":
+            if backend == "pandas":
+                read_func = f"pd.read_parquet"
+            elif backend == "polars":
+                read_func = f"pl.scan_parquet"
+            else:
+                raise ValueError(f"Unsupported backend: {backend}")
         else:
-            raise ValueError(f"Unsupported backend: {backend}")
+            raise ValueError(f"Unsupported io_type: {self.io_type}")
 
         if "*" in self.path:
             if not self.wildcard_column:
@@ -85,7 +98,7 @@ class InputNode(IOBaseNode):
                     f"    _match = _regex.match(_basename)",
                     f"    if not _match: raise ValueError(f'Unexpected filename: {{_basename}}')",
                     f"    _val = _match.group(1)",
-                    f"    _df = pd.read_csv(_file{dtype_arg})",
+                    f"    _df = {read_func}(_file{dtype_arg})",
                     f"    _df['{self.wildcard_column}'] = _val",
                     f"    _df['{self.wildcard_column}'] = _df['{self.wildcard_column}'].astype(str)",
                     f"    {self.name}_df_list.append(_df)",
@@ -102,19 +115,18 @@ class InputNode(IOBaseNode):
                     f"    _match = _regex.match(_basename)",
                     f"    if not _match: raise ValueError(f'Unexpected filename: {{_basename}}')",
                     f"    _val = _match.group(1)",
-                    f"    _df = pl.scan_csv(_file{dtype_arg})",
+                    f"    _df = {read_func}(_file{dtype_arg})",
                     f"    _df = _df.with_columns(pl.lit(_val).cast(pl.Utf8).alias('{self.wildcard_column}'))",
                     f"    {self.name}_df_list.append(_df)",
                     f"{self.name} = pl.concat({self.name}_df_list, how='vertical')",
                 ]
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
-
         else:
             if backend == "pandas":
-                lines = [f'{self.name} = pd.read_csv("{self.path}"{dtype_arg})']
+                lines = [f'{self.name} = {read_func}("{self.path}"{dtype_arg})']
             elif backend == "polars":
-                lines = [f'{self.name} = pl.scan_csv("{self.path}"{dtype_arg})']
+                lines = [f'{self.name} = {read_func}("{self.path}"{dtype_arg})']
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
 
@@ -128,13 +140,17 @@ class OutputNode(IOBaseNode):
     type: Literal["output"] = "output"
 
     def validate(self, context: ValidationContext) -> None:
-        if self.io_type != "csv":
-            raise ValueError(f"[{self.name}] Only 'csv' type is supported, got: {self.io_type}")
+        if self.io_type not in ["csv", "parquet"]:
+            raise ValueError(f"[{self.name}] Only 'csv' and 'parquet' type are supported, got: {self.io_type}")
 
         if self.name not in context.available_vars:
             raise ValueError(f"[{self.name}] Output variable '{self.name}' is not defined in scope.")
 
-        if self.schema_name and self.schema_name not in context.schemas:
+        schema_key = self.schema_name if self.schema_name else self.name
+
+        if schema_key in context.schemas:
+            pass
+        elif self.schema_name:
             raise ValueError(f"[{self.name}] Schema '{self.schema_name}' not found in scope.")
 
     def generate_script(self, backend: str = "pandas", context: ValidationContext = None) -> List[str]:
@@ -143,10 +159,9 @@ class OutputNode(IOBaseNode):
 
         scripts = []
 
-        schema_key = self.schema_name or self.name
+        schema_key = self.schema_name if self.schema_name else self.name
         var_info = context.schemas.get(schema_key)
 
-        # Polars用型マップ
         polars_type_map = {"int": "Int64", "float": "Float64", "str": "Utf8", "bool": "Boolean"}
 
         if isinstance(var_info, VariableInfo) and var_info.columns:
@@ -176,6 +191,7 @@ class OutputNode(IOBaseNode):
                 scripts.append(f"    {self.name}.collect(streaming=True).write_csv(f)")
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
+
         return scripts
 
     def get_inputs(self) -> List[str]:
