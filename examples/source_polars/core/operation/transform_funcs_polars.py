@@ -145,6 +145,10 @@ def _parse_date_column(column: pl.Expr, fmt: str) -> pl.Expr:
     return column.str.strptime(pl.Datetime, fmt)
 
 
+import polars as pl
+from typing import List
+
+
 def month_window(
     df_base: pl.LazyFrame,
     df_data: pl.LazyFrame,
@@ -163,20 +167,17 @@ def month_window(
     _window_end = "__mw_window_end__"
     _join_key = "__mw_join_key__"
 
-    # base 側：日時 + キー連結列 + 行ID
-    df_base_processed = df_base.with_columns(
+    df_base_prepared = df_base.with_columns(
         [
             pl.col(date_col)
             .str.strptime(pl.Datetime, date_format, strict=False)
             .cast(pl.Datetime("us"))
             .alias(_base_date),
-            (
-                pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
-                if keys
-                else pl.lit("").alias(_join_key)
-            ),
+            ((pl.concat_str([pl.col(k) for k in keys], separator="|") if keys else pl.lit("")).alias(_join_key)),
         ]
-    ).with_row_index(_row_id)
+    )
+    df_base_processed = df_base_prepared.with_row_index(_row_id)
+    df_base_processed = df_base_processed.collect().lazy()
 
     results = []
 
@@ -191,11 +192,7 @@ def month_window(
                     pl.col(date_col).str.strptime(pl.Datetime, date_format, strict=False)
                     + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
                 ).alias(_data_date),
-                (
-                    pl.concat_str([pl.col(k) for k in keys], separator="|").alias(_join_key)
-                    if keys
-                    else pl.lit("").alias(_join_key)
-                ),
+                ((pl.concat_str([pl.col(k) for k in keys], separator="|") if keys else pl.lit("")).alias(_join_key)),
             ]
         ).sort([_join_key, _data_date])
 
@@ -211,16 +208,14 @@ def month_window(
 
         df_joined = df_joined.with_columns(
             [
-                (
-                    (pl.col(_base_date).dt.offset_by(f"{m}mo")).alias(_window_start)
-                    if m < 0
-                    else pl.col(_base_date).alias(_window_start)
-                ),
-                (
-                    (pl.col(_base_date)).alias(_window_end)
-                    if m < 0
-                    else pl.col(_base_date).dt.offset_by(f"{m}mo").alias(_window_end)
-                ),
+                pl.when(m < 0)
+                .then(pl.col(_base_date).dt.offset_by(f"{m}mo"))
+                .otherwise(pl.col(_base_date))
+                .alias(_window_start),
+                pl.when(m < 0)
+                .then(pl.col(_base_date))
+                .otherwise(pl.col(_base_date).dt.offset_by(f"{m}mo"))
+                .alias(_window_end),
             ]
         )
 
@@ -228,11 +223,11 @@ def month_window(
             (pl.col(_data_date) >= pl.col(_window_start)) & (pl.col(_data_date) < pl.col(_window_end))
         )
 
-        aggs = []
-        for col in value_cols:
-            for metric in metrics:
-                alias_name = f"{new_col_name_prefix}_{col}_{metric}_{direction}{suffix}"
-                aggs.append(getattr(pl.col(col), metric)().alias(alias_name))
+        aggs = [
+            getattr(pl.col(col), metric)().alias(f"{new_col_name_prefix}_{col}_{metric}_{direction}{suffix}")
+            for col in value_cols
+            for metric in metrics
+        ]
 
         df_agg = df_filtered.group_by(keys + [_row_id]).agg(aggs)
         results.append(df_agg)

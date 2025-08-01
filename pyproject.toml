@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "rotab"
-version = "0.2.18"
+version = "0.2.19"
 description = "ROTAB: a template that moves with your thinking."
 packages = [{ include = "rotab", from = "src" }]
 authors = ["yuta.itatsu <yuta.itatsu@gmail.com>"]
@@ -29,6 +29,11 @@ ruamel-yaml = "^0.18.14"
 s3fs = ">=2023.0.0,<2026.0.0"
 plotly = ">=5.3.1,<6.3.0"
 kaleido = ">=0.2.1,<1.1.0"
+lightgbm = "^4.6.0"
+optuna = "^4.4.0"
+shap = "^0.48.0"
+joblib = "^1.5.1"
+optuna-integration = {extras = ["lightgbm"], version = "^4.4.0"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

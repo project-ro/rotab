@@ -6,6 +6,13 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Tuple
+import polars as pl
+import lightgbm as lgb
+import optuna
+from sklearn.model_selection import train_test_split
+import shap
+import joblib
+from pathlib import Path
 
 
 def normalize_dtype(dtype: str):
@@ -635,7 +642,7 @@ def plot_numerical_distribution(data: np.ndarray, column_name: str, output_filen
         print(f"An unexpected error occurred while saving the HTML file: {e}")
 
 
-def plot_timeseries_histogram(dates: np.ndarray, column_name: str):
+def plot_timestamp_histogram(dates: np.ndarray, column_name: str):
     # Ensure dates are in datetime format for proper Plotly handling
     # Convert various input types to datetime, handling potential errors
     try:
@@ -676,7 +683,7 @@ def plot_timeseries_histogram(dates: np.ndarray, column_name: str):
     )
 
     # Define output directory and ensure it exists
-    output_filename = f"./samples/{column_name}_timeseries_histogram.html"
+    output_filename = f"./samples/{column_name}_timestamp_histogram.html"
 
     try:
         fig.write_html(output_filename, auto_open=False)
@@ -1097,3 +1104,139 @@ def profile_bivariate(
         print(f"Please open '{output_filename}' in your web browser to view the report.")
     except Exception as e:
         print(f"An unexpected error occurred while saving the HTML file: {e}")
+
+
+import polars as pl
+import lightgbm as lgb
+import optuna
+from sklearn.model_selection import train_test_split
+import shap
+import joblib
+import numpy as np
+from pathlib import Path
+from polars.exceptions import PolarsError
+from typing import Dict, Tuple
+
+pl.enable_string_cache()
+
+
+def train_lgbm_with_optuna_multi_target(
+    data_path: str,
+    features: list[str],
+    targets: list[str],
+    split_by: str = "timestamp",
+    split_by_column: str = "yyyymm",
+    timestamp_format: str = "%Y%m",
+    test_size: float = 0.2,
+    validate_size: float = 0.2,
+    n_trials: int = 50,
+    model_path: str = "./models",
+) -> Dict[str, Tuple[lgb.Booster, pl.DataFrame]]:
+    try:
+        df = pl.read_csv(data_path, schema_overrides={split_by_column: pl.String})
+    except (PolarsError, FileNotFoundError) as e:
+        print(f"Error occurred while loading data: {e}")
+        return {}
+
+    Path(model_path).mkdir(parents=True, exist_ok=True)
+
+    if split_by == "timestamp":
+        if split_by_column not in df.columns:
+            raise ValueError(f"The specified split column '{split_by_column}' does not exist in the data.")
+
+        try:
+            df = df.with_columns(pl.col(split_by_column).str.to_date(timestamp_format).alias("_sort_by_date"))
+        except pl.InvalidOperationError:
+            raise ValueError(
+                f"Failed to convert column '{split_by_column}' to a date type using format '{timestamp_format}'. Invalid format."
+            )
+
+        df = df.sort(by="_sort_by_date")
+
+        features_for_model = [f for f in features if f != split_by_column]
+
+        n_total = len(df)
+        n_test = int(n_total * test_size)
+        n_validate = int(n_total * validate_size)
+
+        df_train = df.head(n_total - n_test - n_validate)
+        df_validate = df.slice(n_total - n_test - n_validate, n_validate)
+        df_test = df.tail(n_test)
+
+    elif split_by == "random":
+        features_for_model = features
+        df_train, df_temp = train_test_split(df, test_size=test_size + validate_size, random_state=42)
+        df_validate, df_test = train_test_split(
+            df_temp, test_size=test_size / (test_size + validate_size), random_state=42
+        )
+    else:
+        raise ValueError("split_by must be 'timestamp' or 'random'.")
+
+    X_train_np = df_train[features_for_model].to_numpy(writable=True).astype(np.float32)
+    X_validate_np = df_validate[features_for_model].to_numpy(writable=True).astype(np.float32)
+    X_test_np = df_test[features_for_model].to_numpy(writable=True).astype(np.float32)
+
+    results = {}
+
+    for target in targets:
+        y_train_np = df_train[target].to_numpy(writable=True).astype(np.float32)
+        y_validate_np = df_validate[target].to_numpy(writable=True).astype(np.float32)
+
+        lgb_train = lgb.Dataset(X_train_np, y_train_np)
+        lgb_validate = lgb.Dataset(X_validate_np, y_validate_np)
+
+        def objective(trial):
+            params = {
+                "objective": "regression",
+                "metric": "rmse",
+                "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
+                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
+                "num_leaves": trial.suggest_int("num_leaves", 2, 256),
+                "max_depth": trial.suggest_int("max_depth", 3, 15),
+                "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+                "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+                "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
+                "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 10.0, log=True),
+                "seed": 42,
+                "n_jobs": -1,
+                "verbose": -1,
+            }
+
+            model = lgb.train(
+                params,
+                lgb_train,
+                valid_sets=[lgb_validate],
+                callbacks=[optuna.integration.LightGBMPruningCallback(trial, "rmse")],
+            )
+            return model.best_score["valid_0"]["rmse"]
+
+        study = optuna.create_study(direction="minimize")
+        study.optimize(objective, n_trials=n_trials)
+
+        best_params = study.best_params
+        X_train_full_np = (
+            pl.concat([df_train[features_for_model], df_validate[features_for_model]])
+            .to_numpy(writable=True)
+            .astype(np.float32)
+        )
+        y_train_full_np = pl.concat([df_train[target], df_validate[target]]).to_numpy(writable=True).astype(np.float32)
+        lgb_train_full = lgb.Dataset(X_train_full_np, y_train_full_np)
+
+        best_model = lgb.train(
+            best_params,
+            lgb_train_full,
+        )
+
+        model_filename = Path(model_path) / f"lgbm_reg_{target}_model.joblib"
+        joblib.dump(best_model, model_filename)
+
+        explainer = shap.TreeExplainer(best_model)
+        shap_values = explainer.shap_values(X_test_np)
+
+        shap_df = pl.DataFrame(
+            {"feature": features_for_model, "importance": [abs(v).mean() for v in shap_values.T]}
+        ).sort("importance", descending=True)
+
+        results[target] = (best_model, shap_df)
+
+    return results
