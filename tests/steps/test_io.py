@@ -5,7 +5,7 @@ from rotab.ast.context.validation_context import ValidationContext, VariableInfo
 
 
 def test_input_node_with_columns(base_context: ValidationContext):
-    node = InputNode(name="user", io_type="csv", path="data/users.csv", schema_name="user")
+    node = InputNode(name="user", io_type="csv", path="data/users.csv", schema_name="user", lazy=True)
 
     node.validate(base_context)
     script = node.generate_script("pandas", base_context)
@@ -27,7 +27,7 @@ def test_input_node_without_columns():
         schemas={},
     )
 
-    node = InputNode(name="empty_df", io_type="csv", path="data/empty.csv", schema_name=None)
+    node = InputNode(name="empty_df", io_type="csv", path="data/empty.csv", schema_name=None, lazy=True)
 
     node.validate(context)
     script = node.generate_script("pandas", context)
@@ -48,7 +48,9 @@ def test_input_node_with_wildcard_column(tmp_path, base_context: ValidationConte
     basename_pattern = os.path.basename(path_pattern)
     regex_pattern = re.escape(basename_pattern).replace("\\*", "(.+)")
 
-    node = InputNode(name="user", io_type="csv", path=path_pattern, wildcard_column="yyyymm", schema_name="user")
+    node = InputNode(
+        name="user", io_type="csv", path=path_pattern, wildcard_column="yyyymm", schema_name="user", lazy=True
+    )
 
     node.validate(base_context)
     script = node.generate_script("pandas", base_context)
@@ -89,7 +91,7 @@ def test_input_node_with_wildcard_column(tmp_path, base_context: ValidationConte
 
 
 def test_output_node_with_columns(base_context: ValidationContext):
-    node = OutputNode(name="user", io_type="csv", path="data/users_out.csv", schema_name="user")
+    node = OutputNode(name="user", io_type="csv", path="data/users_out.csv", schema_name="user", lazy=True)
 
     node.validate(base_context)
     script = node.generate_script("pandas", base_context)
@@ -123,7 +125,7 @@ def test_output_node_without_columns():
         schemas={"no_schema_df": VariableInfo(type="dataframe", columns={})},
     )
 
-    node = OutputNode(name="no_schema_df", io_type="csv", path="data/no_schema.csv", schema_name=None)
+    node = OutputNode(name="no_schema_df", io_type="csv", path="data/no_schema.csv", schema_name=None, lazy=True)
 
     node.validate(context)
     script = node.generate_script("pandas", context)

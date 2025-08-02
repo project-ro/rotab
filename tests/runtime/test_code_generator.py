@@ -17,7 +17,7 @@ def template_and_context(request) -> tuple[TemplateNode, ValidationContext, List
 
     process = ProcessNode(
         name="full_process",
-        inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
+        inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user", lazy=True)],
         steps=[
             MutateStep(
                 name="mutate_step",
@@ -33,7 +33,7 @@ def template_and_context(request) -> tuple[TemplateNode, ValidationContext, List
                 name="transform_step", input_vars=["mutated"], expr="transform_func(mutated)", output_vars=["result"]
             ),
         ],
-        outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name="result")],
+        outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name="result", lazy=True)],
     )
 
     template = TemplateNode(name="test_template", depends=[], processes=[process])

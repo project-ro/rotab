@@ -13,13 +13,13 @@ from rotab.ast.util import INDENT
             "pandas",
             ProcessNode(
                 name="transaction_enrichment",
-                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user", lazy=True)],
                 steps=[
                     TransformStep(
                         name="step_merge", input_vars=["user"], expr="transform_func(user)", output_vars=["result"]
                     )
                 ],
-                outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name=None)],
+                outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name=None, lazy=True)],
             ),
             [
                 # === Import block ===
@@ -56,13 +56,13 @@ from rotab.ast.util import INDENT
             "polars",
             ProcessNode(
                 name="transaction_enrichment",
-                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user")],
+                inputs=[InputNode(name="user", io_type="csv", path="user.csv", schema_name="user", lazy=True)],
                 steps=[
                     TransformStep(
                         name="step_merge", input_vars=["user"], expr="transform_func(user)", output_vars=["result"]
                     )
                 ],
-                outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name=None)],
+                outputs=[OutputNode(name="result", io_type="csv", path="result.csv", schema_name=None, lazy=True)],
             ),
             [
                 # === Import block ===
@@ -131,7 +131,7 @@ def test_process_node_output_undefined_error(base_context: ValidationContext):
         name="undefined_output",
         inputs=[],
         steps=[],
-        outputs=[OutputNode(name="ghost", io_type="csv", path="ghost.csv", schema_name=None)],
+        outputs=[OutputNode(name="ghost", io_type="csv", path="ghost.csv", schema_name=None, lazy=True)],
     )
 
     with pytest.raises(ValueError, match=r"\[ghost\] Output variable 'ghost' is not defined in scope."):
