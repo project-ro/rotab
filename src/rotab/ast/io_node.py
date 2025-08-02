@@ -2,7 +2,7 @@ import os
 import re
 from rotab.ast.node import Node
 from rotab.ast.context.validation_context import ValidationContext, VariableInfo
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict
 
 
 class IOBaseNode(Node):
@@ -10,6 +10,7 @@ class IOBaseNode(Node):
     io_type: str
     path: str
     schema_name: Optional[str] = None
+    lazy: Optional[bool] = True
 
     def to_dict(self) -> dict:
         base = super().to_dict()
@@ -49,95 +50,109 @@ class InputNode(IOBaseNode):
         if not isinstance(var_info, VariableInfo):
             raise ValueError(f"[{self.name}] VariableInfo not found for input.")
 
-        # Ensure the path is set from the context if not already set
+        # Set path if missing
         if not self.path:
             self.path = context.schemas.get(self.schema_name, {}).path if self.schema_name else ""
-
         if not self.path:
             raise ValueError(f"[{self.name}] 'path' must be specified for input node.")
 
+        # Build read function string constructor
+        read_func = self._build_read_func(backend, var_info)
+
+        # Dispatch to wildcard or single-path handler
+        if "*" in self.path:
+            return self._generate_wildcard_read_lines(backend, read_func)
+        return self._generate_single_file_read_lines(backend, read_func)
+
+    def _build_read_func(self, backend: str, var_info: VariableInfo):
         polars_type_map = {"int": "Int64", "float": "Float64", "str": "Utf8", "bool": "Boolean"}
 
-        dtype_arg = ""
-        read_func = ""
+        def pandas_csv(path_expr):
+            dtype_arg = f", dtype={repr(var_info.columns)}" if var_info.columns else ""
+            return f"pd.read_csv({path_expr}{dtype_arg})"
 
-        if self.io_type == "csv":
-            if backend == "pandas":
-                dtype_arg = f", dtype={repr(var_info.columns)}" if var_info.columns else ""
-                read_func = f"pd.read_csv"
-            elif backend == "polars":
-                if var_info.columns:
-                    dtype_dict = {
-                        col: f"pl.{polars_type_map.get(dtype, 'Utf8')}" for col, dtype in var_info.columns.items()
-                    }
-                    dtype_items = ", ".join([f'"{k}": {v}' for k, v in dtype_dict.items()])
-                    dtype_arg = f", dtypes={{{dtype_items}}}"
-                else:
-                    dtype_arg = ""
-                read_func = f"pl.scan_csv"
+        def pandas_parquet(path_expr):
+            return f"pd.read_parquet({path_expr})"
+
+        def polars_csv(path_expr):
+            dtype_arg = ""
+            if var_info.columns:
+                dtype_dict = {
+                    col: f"pl.{polars_type_map.get(dtype, 'Utf8')}" for col, dtype in var_info.columns.items()
+                }
+                dtype_items = ", ".join([f'"{k}": {v}' for k, v in dtype_dict.items()])
+                dtype_arg = f", dtypes={{{dtype_items}}}"
+            if self.lazy:
+                return f"pl.scan_csv({path_expr}{dtype_arg})"
             else:
-                raise ValueError(f"Unsupported backend: {backend}")
-        elif self.io_type == "parquet":
-            if backend == "pandas":
-                read_func = f"pd.read_parquet"
-            elif backend == "polars":
-                read_func = f"pl.scan_parquet"
+                return f"pl.read_csv({path_expr}{dtype_arg})"
+
+        def polars_parquet(path_expr):
+            if self.lazy:
+                return f"pl.scan_parquet({path_expr})"
             else:
-                raise ValueError(f"Unsupported backend: {backend}")
+                return f"pl.read_parquet({path_expr})"
+
+        io_map = {
+            ("csv", "pandas"): pandas_csv,
+            ("csv", "polars"): polars_csv,
+            ("parquet", "pandas"): pandas_parquet,
+            ("parquet", "polars"): polars_parquet,
+        }
+
+        key = (self.io_type, backend)
+        if key not in io_map:
+            raise ValueError(f"Unsupported io_type/backend combination: {key}")
+        return io_map[key]
+
+    def _generate_wildcard_read_lines(self, backend: str, read_func) -> List[str]:
+        if not self.wildcard_column:
+            raise ValueError(f"[{self.name}] 'wildcard_column' must be specified for wildcard path.")
+
+        basename_pattern = os.path.basename(self.path)
+        regex_pattern = re.escape(basename_pattern).replace("\\*", "(.+)")
+
+        imports = ["import glob", "os", "re"]
+        if backend == "polars":
+            imports.append("polars as pl")
+
+        common = [
+            f"{self.name}_files = glob.glob('{self.path}')",
+            f"{self.name}_df_list = []",
+            f"_regex = re.compile(r'{regex_pattern}')",
+            f"for _file in {self.name}_files:",
+            f"    _basename = os.path.basename(_file)",
+            f"    _match = _regex.match(_basename)",
+            f"    if not _match: raise ValueError(f'Unexpected filename: {{_basename}}')",
+            f"    _val = _match.group(1)",
+        ]
+
+        if backend == "pandas":
+            body = [
+                f"    _df = {read_func('_file')}",
+                f"    _df['{self.wildcard_column}'] = _val",
+                f"    _df['{self.wildcard_column}'] = _df['{self.wildcard_column}'].astype(str)",
+                f"    {self.name}_df_list.append(_df)",
+                f"{self.name} = pd.concat({self.name}_df_list, ignore_index=True)",
+            ]
+        elif backend == "polars":
+            body = [
+                f"    _df = {read_func('_file')}",
+                f"    _df = _df.with_columns(pl.lit(_val).cast(pl.Utf8).alias('{self.wildcard_column}'))",
+                f"    {self.name}_df_list.append(_df)",
+                f"{self.name} = pl.concat({self.name}_df_list, how='vertical')",
+            ]
         else:
-            raise ValueError(f"Unsupported io_type: {self.io_type}")
+            raise ValueError(f"Unsupported backend: {backend}")
 
-        if "*" in self.path:
-            if not self.wildcard_column:
-                raise ValueError(f"[{self.name}] 'wildcard_column' must be specified for wildcard path.")
+        return [", ".join(imports)] + common + body
 
-            basename_pattern = os.path.basename(self.path)
-            regex_pattern = re.escape(basename_pattern).replace("\\*", "(.+)")
+    def _generate_single_file_read_lines(self, backend: str, read_func) -> List[str]:
+        if backend == "pandas" or backend == "polars":
+            path_literal = f'"{self.path}"'
+            return [f"{self.name} = {read_func(path_literal)}"]
 
-            if backend == "pandas":
-                lines = [
-                    "import glob, os, re",
-                    f"{self.name}_files = glob.glob('{self.path}')",
-                    f"{self.name}_df_list = []",
-                    f"_regex = re.compile(r'{regex_pattern}')",
-                    f"for _file in {self.name}_files:",
-                    f"    _basename = os.path.basename(_file)",
-                    f"    _match = _regex.match(_basename)",
-                    f"    if not _match: raise ValueError(f'Unexpected filename: {{_basename}}')",
-                    f"    _val = _match.group(1)",
-                    f"    _df = {read_func}(_file{dtype_arg})",
-                    f"    _df['{self.wildcard_column}'] = _val",
-                    f"    _df['{self.wildcard_column}'] = _df['{self.wildcard_column}'].astype(str)",
-                    f"    {self.name}_df_list.append(_df)",
-                    f"{self.name} = pd.concat({self.name}_df_list, ignore_index=True)",
-                ]
-            elif backend == "polars":
-                lines = [
-                    "import glob, os, re, polars as pl",
-                    f"{self.name}_files = glob.glob('{self.path}')",
-                    f"{self.name}_df_list = []",
-                    f"_regex = re.compile(r'{regex_pattern}')",
-                    f"for _file in {self.name}_files:",
-                    f"    _basename = os.path.basename(_file)",
-                    f"    _match = _regex.match(_basename)",
-                    f"    if not _match: raise ValueError(f'Unexpected filename: {{_basename}}')",
-                    f"    _val = _match.group(1)",
-                    f"    _df = {read_func}(_file{dtype_arg})",
-                    f"    _df = _df.with_columns(pl.lit(_val).cast(pl.Utf8).alias('{self.wildcard_column}'))",
-                    f"    {self.name}_df_list.append(_df)",
-                    f"{self.name} = pl.concat({self.name}_df_list, how='vertical')",
-                ]
-            else:
-                raise ValueError(f"Unsupported backend: {backend}")
-        else:
-            if backend == "pandas":
-                lines = [f'{self.name} = {read_func}("{self.path}"{dtype_arg})']
-            elif backend == "polars":
-                lines = [f'{self.name} = {read_func}("{self.path}"{dtype_arg})']
-            else:
-                raise ValueError(f"Unsupported backend: {backend}")
-
-        return lines
+        raise ValueError(f"Unsupported backend: {backend}")
 
     def get_outputs(self) -> List[str]:
         return [self.name]
@@ -162,55 +177,54 @@ class OutputNode(IOBaseNode):
         if context is None:
             raise ValueError("context must be provided.")
 
-        scripts = []
-
         schema_key = self.schema_name if self.schema_name else self.name
         var_info = context.schemas.get(schema_key)
+        columns = var_info.columns if isinstance(var_info, VariableInfo) and var_info.columns else None
 
-        polars_type_map = {"int": "Int64", "float": "Float64", "str": "Utf8", "bool": "Boolean"}
+        if backend == "pandas":
+            return self._generate_pandas_script(columns)
+        if backend == "polars":
+            return self._generate_polars_script(columns)
+        raise ValueError(f"Unsupported backend: {backend}")
 
-        if isinstance(var_info, VariableInfo) and var_info.columns:
+    def _generate_pandas_script(self, columns: Optional[Dict[str, str]]) -> List[str]:
+        scripts = []
 
-            # force schema
-            for col, dtype in var_info.columns.items():
-                if backend == "pandas":
-                    scripts.append(f'{self.name}["{col}"] = {self.name}["{col}"].astype("{dtype}")')
-                elif backend == "polars":
-                    polars_dtype = polars_type_map.get(dtype, "Utf8")
-                    scripts.append(f'{self.name} = {self.name}.with_columns(pl.col("{col}").cast(pl.{polars_dtype}))')
-                else:
-                    raise ValueError(f"Unsupported backend: {backend}")
+        if columns:
+            for col, dtype in columns.items():
+                scripts.append(f'{self.name}["{col}"] = {self.name}["{col}"].astype("{dtype}")')
 
-            if backend == "pandas":
-                if self.io_type == "csv":
-                    scripts.append(
-                        f'{self.name}.to_csv("{self.path}", index=False, columns={list(var_info.columns.keys())})'
-                    )
-                elif self.io_type == "parquet":
-                    scripts.append(
-                        f'{self.name}.to_parquet("{self.path}", index=False, columns={list(var_info.columns.keys())})'
-                    )
-                else:
-                    raise ValueError(f"Unsupported io_type: {self.io_type}")
+        write_args = "index=False"
+        if columns:
+            write_args += f", columns={list(columns.keys())}"
 
-            elif backend == "polars":
-                scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
-                if self.io_type == "csv":
-                    scripts.append(f"    {self.name}.collect(streaming=True).write_csv(f)")
-                elif self.io_type == "parquet":
-                    scripts.append(f"    {self.name}.collect(streaming=True).write_parquet(f)")
-                else:
-                    raise ValueError(f"Unsupported io_type: {self.io_type}")
-            else:
-                raise ValueError(f"Unsupported backend: {backend}")
+        if self.io_type == "csv":
+            scripts.append(f'{self.name}.to_csv("{self.path}", {write_args})')
+        elif self.io_type == "parquet":
+            scripts.append(f'{self.name}.to_parquet("{self.path}", {write_args})')
         else:
-            if backend == "pandas":
-                scripts.append(f'{self.name}.to_csv("{self.path}", index=False)')
-            elif backend == "polars":
-                scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
-                scripts.append(f"    {self.name}.collect(streaming=True).write_csv(f)")
-            else:
-                raise ValueError(f"Unsupported backend: {backend}")
+            raise ValueError(f"Unsupported io_type: {self.io_type}")
+
+        return scripts
+
+    def _generate_polars_script(self, columns: Optional[Dict[str, str]]) -> List[str]:
+        scripts = []
+
+        if columns:
+            pl_type_map = {"int": "Int64", "float": "Float64", "str": "Utf8", "bool": "Boolean"}
+            for col, dtype in columns.items():
+                pl_dtype = pl_type_map.get(dtype, "Utf8")
+                scripts.append(f'{self.name} = {self.name}.with_columns(pl.col("{col}").cast(pl.{pl_dtype}))')
+
+        collect_expr = ".collect(streaming=True)" if self.lazy else ".collect()"
+
+        scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
+        if self.io_type == "csv":
+            scripts.append(f"    {self.name}{collect_expr}.write_csv(f)")
+        elif self.io_type == "parquet":
+            scripts.append(f"    {self.name}{collect_expr}.write_parquet(f)")
+        else:
+            raise ValueError(f"Unsupported io_type: {self.io_type}")
 
         return scripts
 
