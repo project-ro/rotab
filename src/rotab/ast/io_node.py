@@ -49,6 +49,13 @@ class InputNode(IOBaseNode):
         if not isinstance(var_info, VariableInfo):
             raise ValueError(f"[{self.name}] VariableInfo not found for input.")
 
+        # Ensure the path is set from the context if not already set
+        if not self.path:
+            self.path = context.schemas.get(self.schema_name, {}).path if self.schema_name else ""
+
+        if not self.path:
+            raise ValueError(f"[{self.name}] 'path' must be specified for input node.")
+
         polars_type_map = {"int": "Int64", "float": "Float64", "str": "Utf8", "bool": "Boolean"}
 
         dtype_arg = ""

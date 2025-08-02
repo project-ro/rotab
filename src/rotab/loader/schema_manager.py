@@ -12,19 +12,20 @@ class SchemaManager:
         self.schema_dir = schema_dir
         self._cache: Dict[str, VariableInfo] = {}
 
-    def get_schema(self, name: str, raise_error: bool = True) -> Optional[VariableInfo]:
-        if name in self._cache:
-            return self._cache[name]
+    def get_schema_dir(self) -> str:
+        return self.schema_dir
 
-        yaml_path = os.path.join(self.schema_dir, f"{name}.yaml")
-        yml_path = os.path.join(self.schema_dir, f"{name}.yml")
+    def get_schema(self, schema_name: str, raise_error: bool = True) -> Optional[VariableInfo]:
+        if schema_name in self._cache:
+            return self._cache[schema_name]
+
+        yaml_path = os.path.join(self.schema_dir, f"{schema_name}.yaml")
+        yml_path = os.path.join(self.schema_dir, f"{schema_name}.yml")
         schema_path = None
-
         if os.path.exists(yaml_path):
             schema_path = yaml_path
         elif os.path.exists(yml_path):
             schema_path = yml_path
-
         if schema_path is None:
             if raise_error:
                 raise FileNotFoundError(f"Schema file not found: {yaml_path} or {yml_path}")
@@ -35,21 +36,17 @@ class SchemaManager:
             raw_schema = yaml.safe_load(f)
         logger.info(f"Loaded schema: {schema_path}")
 
-        if "columns" in raw_schema:
-            columns = raw_schema["columns"]
-            if isinstance(columns, dict):
-                schema = VariableInfo(type="dataframe", columns=columns)
-            elif isinstance(columns, list):
-                schema = VariableInfo(
-                    type="dataframe",
-                    columns={col["name"]: col["dtype"] for col in columns},
-                )
-            else:
-                raise ValueError(f"Invalid columns format in {schema_path}")
-        elif isinstance(raw_schema, dict):
-            schema = VariableInfo(type="dataframe", columns=raw_schema)
-        else:
-            raise ValueError(f"Invalid schema format in {schema_path}")
+        if "columns" not in raw_schema:
+            raise ValueError(f"'columns' key not found in {schema_path}")
+        columns = raw_schema["columns"]
+        path = raw_schema.get("path", None)
 
-        self._cache[name] = schema
+        if isinstance(columns, dict):
+            schema = VariableInfo(type="dataframe", columns=columns, path=path)
+        elif isinstance(columns, list):
+            schema = VariableInfo(type="dataframe", columns={col["name"]: col["dtype"] for col in columns}, path=path)
+        else:
+            raise ValueError(f"Invalid columns format in {schema_path}")
+
+        self._cache[schema_name] = schema
         return schema

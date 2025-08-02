@@ -16,8 +16,7 @@ logger = get_logger()
 
 
 class Pipeline:
-    def __init__(self, template_dir, templates, backend, context, source_dir=".generated"):
-        self.template_dir = template_dir
+    def __init__(self, templates, backend, context, source_dir=".generated"):
         self.templates = templates
         self.backend = backend
         self.context = context
@@ -77,12 +76,12 @@ class Pipeline:
         )
         context = context_builder.build(templates)
 
-        return cls(template_dir, templates, backend, context, source_dir)
+        return cls(templates, backend, context, source_dir)
 
     def is_remote_path(self, path: str) -> bool:
         return path.startswith("s3://") or "://" in path
 
-    def rewrite_template_paths_and_copy_data(self, source_dir: str, template_dir: str):
+    def _copy_data(self, source_dir: str):
         input_dir = os.path.join(source_dir, "data", "inputs")
         output_dir = os.path.join(source_dir, "data", "outputs")
         os.makedirs(input_dir, exist_ok=True)
@@ -94,8 +93,7 @@ class Pipeline:
                 for node in proc.outputs:
                     if self.is_remote_path(node.path):
                         continue
-                    abs_path = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
-                    output_paths.add(abs_path)
+                    output_paths.add(node.path)
 
         for template in self.templates:
             for proc in template.processes:
@@ -104,26 +102,23 @@ class Pipeline:
                         continue
 
                     if "*" in node.path:
-                        pattern = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                        pattern = node.path
                         for matched in glob.glob(pattern):
                             dst = os.path.join(input_dir, os.path.basename(matched))
                             shutil.copyfile(matched, dst)
                     else:
-                        abs_src = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
-                        dst = os.path.join(input_dir, os.path.basename(node.path))
+                        abs_src = node.path
+                        dst = os.path.join(input_dir, os.path.basename(abs_src))
                         if abs_src not in output_paths:
                             shutil.copyfile(abs_src, dst)
 
         for template in self.templates:
             for proc in template.processes:
-
-                # inputs
                 for node in proc.inputs:
                     if self.is_remote_path(node.path):
                         continue
-
                     fname = os.path.basename(node.path)
-                    abs_src = os.path.normpath(os.path.abspath(os.path.join(template_dir, node.path)))
+                    abs_src = node.path
 
                     if "*" in node.path:
                         new_path = os.path.relpath(os.path.join(input_dir, fname), source_dir)
@@ -134,13 +129,14 @@ class Pipeline:
 
                     node.path = new_path
 
-                # outputs
                 for node in proc.outputs:
                     if self.is_remote_path(node.path):
                         continue
 
                     fname = os.path.basename(node.path)
-                    node.path = os.path.relpath(os.path.join(output_dir, fname), source_dir)
+                    new_path = os.path.relpath(os.path.join(output_dir, fname), source_dir)
+
+                    node.path = new_path
 
     def copy_custom_functions(self, source_dir: str) -> None:
         cf_dir = os.path.join(source_dir, "custom_functions")
@@ -186,10 +182,10 @@ class Pipeline:
 
     def generate_dag(self, source_dir: str) -> None:
         dag_gen = DagGenerator(self.templates)
-        mermeid = dag_gen.generate_mermaid()
+        mermaid = dag_gen.generate_mermaid()
         path = os.path.join(source_dir, "mermaid.mmd")
         with open(path, "w") as f:
-            f.write(mermeid)
+            f.write(mermaid)
         logger.info(f"Mermaid DAG generated at: {path}")
 
     def execute_script(self, source_dir: str) -> None:
@@ -212,7 +208,8 @@ class Pipeline:
         os.makedirs(self.source_dir, exist_ok=True)
         self.copy_core_modules(self.source_dir)
         self.copy_custom_functions(self.source_dir)
-        self.rewrite_template_paths_and_copy_data(self.source_dir, self.template_dir)
+
+        self._copy_data(self.source_dir)
 
         if dag:
             self.generate_dag(self.source_dir)

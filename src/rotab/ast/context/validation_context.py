@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 class VariableInfo(BaseModel):
     type: str  # e.g., "dataframe"
+    path: Optional[str] = None
     columns: Dict[str, str]
 
 

@@ -6,7 +6,7 @@ processes:
       inputs:
         - name: user
           io_type: csv
-          path: ../../data/user.csv
+          # path: ../../data/user.csv
           schema: user
       outputs:
         - name: filtered_users

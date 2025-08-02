@@ -6,7 +6,7 @@ processes:
       inputs:
         - name: trans
           io_type: csv
-          path: ../../data/transaction.csv
+          path: ../../data/transaction.csv # template relative path
           # schema: trans
       outputs:
         - name: filtered_transactions
