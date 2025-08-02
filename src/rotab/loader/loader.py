@@ -25,7 +25,6 @@ class Loader:
         templates = self._load_all_templates()
         sorted_templates = self._resolve_dependencies(templates)
         resolved_templates = self._resolve_paths(sorted_templates)
-
         return [self._to_node(t) for t in resolved_templates]
 
     def _load_all_templates(self) -> List[dict]:
@@ -42,18 +41,17 @@ class Loader:
                     raise ValueError(f"Invalid YAML format in {filename}")
 
                 global_macros = raw.get("macros", {})
+
                 if "processes" in raw:
                     for process in raw["processes"]:
                         io_defs = process.get("io", {})
                         for io_section in ("inputs", "outputs"):
                             for io_def in io_defs.get(io_section, []):
-                                name = io_def.get("name")
-                                schema_name = io_def.get("schema")
-                                if schema_name:
-                                    self.schema_manager.get_schema(schema_name)
-                                else:
-                                    self.schema_manager.get_schema(name, raise_error=False)
+                                if "schema" in io_def:
+                                    self.schema_manager.get_schema(io_def["schema"])
 
+                if "processes" in raw:
+                    for process in raw["processes"]:
                         macro_definitions = process.get("macros", global_macros)
                         expander = MacroExpander(macro_definitions)
                         if "steps" in process:
@@ -66,9 +64,8 @@ class Loader:
                 normalized = self._replace_with_key(raw)
                 for process in normalized.get("processes", []):
                     original_io = deepcopy(process.get("io", {}))
-                    process = self._preprocess_io_dict(process)
                     process["__original_io__"] = original_io
-
+                    process = self._preprocess_io_dict(process)
                     if "steps" in process:
                         process["steps"] = [self._preprocess_step_dict(step) for step in process["steps"]]
 
@@ -87,25 +84,37 @@ class Loader:
                     original_io = process.pop("__original_io__", {})
                     for io_section in ("inputs", "outputs"):
                         io_definitions = original_io.get(io_section, [])
-                        for i, io_def in enumerate(io_definitions):
-                            current_io_def = process.get(io_section, [])[i]
+                        process[io_section] = []
+                        for io_def in io_definitions:
+                            current_io_def = deepcopy(io_def)
                             original_path = io_def.get("path")
+                            schema_name_explicitly_set = "schema" in current_io_def
 
                             if original_path:
                                 resolved_path = str((self.template_dir / original_path).resolve())
                                 current_io_def["path"] = resolved_path
-                                continue
-
-                            schema_name = current_io_def.get("schema_name", current_io_def.get("name"))
-                            if schema_name:
-                                var_info = self.schema_manager.get_schema(schema_name)
+                            elif schema_name_explicitly_set:
+                                schema_name = current_io_def["schema"]
+                                var_info = self.schema_manager.get_schema(schema_name, raise_error=False)
                                 if var_info and var_info.path:
                                     resolved_path = str((self.schema_dir / var_info.path).resolve())
                                     current_io_def["path"] = resolved_path
-                                else:
-                                    current_io_def["path"] = ""
                             else:
-                                current_io_def["path"] = ""
+                                schema_name = current_io_def.get("name")
+                                if schema_name:
+                                    var_info = self.schema_manager.get_schema(schema_name, raise_error=False)
+                                    if var_info and var_info.path:
+                                        resolved_path = str((self.schema_dir / var_info.path).resolve())
+                                        current_io_def["path"] = resolved_path
+
+                            if "schema" in current_io_def:
+                                current_io_def["schema_name"] = current_io_def.pop("schema")
+
+                            if not schema_name_explicitly_set:
+                                if "name" in current_io_def:
+                                    current_io_def["schema_name"] = current_io_def["name"]
+
+                            process[io_section].append(current_io_def)
             resolved_templates.append(t_copy)
         return resolved_templates
 
@@ -128,7 +137,6 @@ class Loader:
         for io_key in ("inputs", "outputs"):
             io_list = io.get(io_key, [])
             for io_def in io_list:
-                io_def.setdefault("type", "input" if io_key == "inputs" else "output")
                 if "schema" in io_def:
                     io_def["schema_name"] = io_def.pop("schema")
                 io_def.setdefault("schema_name", "")
@@ -178,4 +186,20 @@ class Loader:
         return result
 
     def _to_node(self, template: dict) -> TemplateNode:
-        return TemplateNode.from_dict(template, self.schema_manager)
+        template_with_inferred_io_type = deepcopy(template)
+        for process in template_with_inferred_io_type.get("processes", []):
+            for io_section in ("inputs", "outputs"):
+                for io_def in process.get(io_section, []):
+                    if "path" in io_def:
+                        if "io_type" not in io_def:
+                            path = Path(io_def["path"])
+                            if path.suffix.lower() == ".csv":
+                                io_def["io_type"] = "csv"
+                            elif path.suffix.lower() == ".json":
+                                io_def["io_type"] = "json"
+                            elif path.suffix.lower() == ".parquet":
+                                io_def["io_type"] = "parquet"
+                            else:
+                                raise ValueError(f"Could not infer `io_type` from path: {path}")
+
+        return TemplateNode.from_dict(template_with_inferred_io_type, self.schema_manager)
