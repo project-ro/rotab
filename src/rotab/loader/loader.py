@@ -128,7 +128,7 @@ class Loader:
 
                 input_var = step_copy["with"]
                 if isinstance(input_var, str):
-                    new_as = f"intermediate_{input_var}"
+                    new_as = f"tmp_{i}_{input_var}"
                     step_copy["as"] = new_as
                 else:
                     raise ValueError(
