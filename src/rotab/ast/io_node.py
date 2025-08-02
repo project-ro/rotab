@@ -170,6 +170,8 @@ class OutputNode(IOBaseNode):
         polars_type_map = {"int": "Int64", "float": "Float64", "str": "Utf8", "bool": "Boolean"}
 
         if isinstance(var_info, VariableInfo) and var_info.columns:
+
+            # force schema
             for col, dtype in var_info.columns.items():
                 if backend == "pandas":
                     scripts.append(f'{self.name}["{col}"] = {self.name}["{col}"].astype("{dtype}")')
@@ -180,12 +182,25 @@ class OutputNode(IOBaseNode):
                     raise ValueError(f"Unsupported backend: {backend}")
 
             if backend == "pandas":
-                scripts.append(
-                    f'{self.name}.to_csv("{self.path}", index=False, columns={list(var_info.columns.keys())})'
-                )
+                if self.io_type == "csv":
+                    scripts.append(
+                        f'{self.name}.to_csv("{self.path}", index=False, columns={list(var_info.columns.keys())})'
+                    )
+                elif self.io_type == "parquet":
+                    scripts.append(
+                        f'{self.name}.to_parquet("{self.path}", index=False, columns={list(var_info.columns.keys())})'
+                    )
+                else:
+                    raise ValueError(f"Unsupported io_type: {self.io_type}")
+
             elif backend == "polars":
                 scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
-                scripts.append(f"    {self.name}.collect(streaming=True).write_csv(f)")
+                if self.io_type == "csv":
+                    scripts.append(f"    {self.name}.collect(streaming=True).write_csv(f)")
+                elif self.io_type == "parquet":
+                    scripts.append(f"    {self.name}.collect(streaming=True).write_parquet(f)")
+                else:
+                    raise ValueError(f"Unsupported io_type: {self.io_type}")
             else:
                 raise ValueError(f"Unsupported backend: {backend}")
         else:
