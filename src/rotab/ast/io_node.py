@@ -10,7 +10,7 @@ class IOBaseNode(Node):
     io_type: str
     path: str
     schema_name: Optional[str] = None
-    lazy: Optional[bool] = True
+    lazy: Optional[bool] = False
 
     def to_dict(self) -> dict:
         base = super().to_dict()
@@ -216,15 +216,23 @@ class OutputNode(IOBaseNode):
                 pl_dtype = pl_type_map.get(dtype, "Utf8")
                 scripts.append(f'{self.name} = {self.name}.with_columns(pl.col("{col}").cast(pl.{pl_dtype}))')
 
-        collect_expr = ".collect(streaming=True)" if self.lazy else ".collect()"
-
-        scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
-        if self.io_type == "csv":
-            scripts.append(f"    {self.name}{collect_expr}.write_csv(f)")
-        elif self.io_type == "parquet":
-            scripts.append(f"    {self.name}{collect_expr}.write_parquet(f)")
+        if self.lazy:
+            collect_expr = ".collect(streaming=True)"
+            scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
+            if self.io_type == "csv":
+                scripts.append(f"    {self.name}{collect_expr}.write_csv(f)")
+            elif self.io_type == "parquet":
+                scripts.append(f"    {self.name}{collect_expr}.write_parquet(f)")
+            else:
+                raise ValueError(f"Unsupported io_type: {self.io_type}")
         else:
-            raise ValueError(f"Unsupported io_type: {self.io_type}")
+            # EagerFrame: no collect, direct write
+            if self.io_type == "csv":
+                scripts.append(f'{self.name}.write_csv("{self.path}")')
+            elif self.io_type == "parquet":
+                scripts.append(f'{self.name}.write_parquet("{self.path}")')
+            else:
+                raise ValueError(f"Unsupported io_type: {self.io_type}")
 
         return scripts
 
