@@ -29,12 +29,14 @@ subgraph T_main_template ["main_template"]
     I_main_template__filtered_users(["[I]filtered_users"])
     I_main_template__filtered_transactions(["[I]filtered_transactions"])
     S_main_template__filter_users_main(["[S]filter_users_main"])
+    S_main_template__omittable_step(["[S]omittable_step"])
     S_main_template__filter_transactions_main(["[S]filter_transactions_main"])
     S_main_template__merge_transactions(["[S]merge_transactions"])
     S_main_template__derive_segment(["[S]derive_segment"])
     S_main_template__groupby_segment(["[S]groupby_segment"])
     O_main_template__final_output(["[O]final_output"])
     I_main_template__filtered_users --> S_main_template__filter_users_main
+    S_main_template__filter_users_main --> S_main_template__omittable_step
     I_main_template__filtered_transactions --> S_main_template__filter_transactions_main
     S_main_template__filter_users_main --> S_main_template__merge_transactions
     S_main_template__filter_transactions_main --> S_main_template__merge_transactions

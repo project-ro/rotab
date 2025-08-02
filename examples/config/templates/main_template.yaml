@@ -44,6 +44,11 @@ processes:
         as: filtered_users_main
         when: ${params.test}
 
+      - name: omittable_step
+        mutate:
+          - derive: |
+              dummy = "dummy_value"
+
       - name: filter_transactions_main
         with: filtered_transactions
         mutate:
@@ -63,7 +68,6 @@ processes:
           - derive: |
               segment = str(age_bucket) + str(log_age)
         as: enriched_with_segment
-        with, as: enriched, enriched_with_segment
 
       - name: groupby_segment
         with: enriched_with_segment

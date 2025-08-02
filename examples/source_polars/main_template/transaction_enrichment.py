@@ -28,6 +28,14 @@ def step_filter_users_main_transaction_enrichment(filtered_users):
     return filtered_users_main
 
 
+def step_omittable_step_transaction_enrichment(filtered_users_main):
+    intermediate_filtered_users_main = filtered_users_main
+    intermediate_filtered_users_main = intermediate_filtered_users_main.with_columns(parse("""
+        dummy = "dummy_value"
+        """))
+    return intermediate_filtered_users_main
+
+
 def step_filter_transactions_main_transaction_enrichment(filtered_transactions):
     filtered_trans = filtered_transactions
     filtered_trans = filtered_trans.filter(parse('amount > 1000'))
@@ -62,6 +70,7 @@ def transaction_enrichment():
     filtered_users = pl.read_csv("data/outputs/filtered_users.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "age_group": pl.Int64})
     filtered_transactions = pl.read_csv("data/outputs/filtered_transactions.csv", dtypes={"user_id": pl.Utf8, "amount": pl.Int64, "is_large": pl.Boolean})
     filtered_users_main = step_filter_users_main_transaction_enrichment(filtered_users)
+    intermediate_filtered_users_main = step_omittable_step_transaction_enrichment(filtered_users_main)
     filtered_trans = step_filter_transactions_main_transaction_enrichment(filtered_transactions)
     enriched = step_merge_transactions_transaction_enrichment(filtered_users_main, filtered_trans)
     enriched_with_segment = step_derive_segment_transaction_enrichment(enriched)

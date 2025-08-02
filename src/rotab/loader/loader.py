@@ -25,6 +25,7 @@ class Loader:
         templates = self._load_all_templates()
         templates = self._resolve_dependencies(templates)
         templates = self._resolve_io_definitions(templates)
+        templates = self._resolve_steps(templates)
         return [self._to_node(t) for t in templates]
 
     def _load_all_templates(self) -> List[dict]:
@@ -42,14 +43,12 @@ class Loader:
 
                 global_macros = raw.get("macros", {})
 
-                # Validate schema references early
                 for process in raw.get("processes", []):
                     for io_section in ("inputs", "outputs"):
                         for io_def in process.get("io", {}).get(io_section, []):
                             if "schema" in io_def:
                                 self.schema_manager.get_schema(io_def["schema"])
 
-                # Expand macros
                 for process in raw.get("processes", []):
                     macros = process.get("macros", global_macros)
                     expander = MacroExpander(macros)
@@ -58,8 +57,7 @@ class Loader:
                     process.pop("macros", None)
 
                 raw.pop("macros", None)
-                normalized = self._replace_with_key(raw)
-                resolved = self.param_resolver.resolve(normalized)
+                resolved = self.param_resolver.resolve(raw)
                 resolved["__filename__"] = filename
                 templates.append(resolved)
 
@@ -95,10 +93,52 @@ class Loader:
                         resolved_io.append(io_def)
                     process[io_key] = resolved_io
 
-                if "steps" in process:
-                    process["steps"] = [self._preprocess_step_dict(s) for s in process["steps"]]
-
         return templates
+
+    def _resolve_steps(self, templates: List[dict]) -> List[dict]:
+        for t in templates:
+            for process in t.get("processes", []):
+                if "steps" in process:
+                    process["steps"] = self._infer_step_io(process["steps"])
+                    process["steps"] = [self._preprocess_step_dict(s) for s in process["steps"]]
+        return templates
+
+    def _infer_step_io(self, steps: List[dict]) -> List[dict]:
+        prev_output_var = None
+        resolved_steps = []
+        for i, step in enumerate(steps):
+            step_copy = deepcopy(step)
+
+            if "with" not in step_copy:
+                if i == 0:
+                    raise ValueError(
+                        f"Step '{step_copy.get('name', 'unnamed')}' is the first step and must explicitly define 'with'."
+                    )
+                if prev_output_var is None:
+                    raise ValueError(
+                        f"Previous step did not define an 'as' variable, so 'with' cannot be inferred for step '{step_copy.get('name', 'unnamed')}'."
+                    )
+                step_copy["with"] = prev_output_var
+
+            if "as" not in step_copy:
+                if i == len(steps) - 1:
+                    raise ValueError(
+                        f"Step '{step_copy.get('name', 'unnamed')}' is the last step and must explicitly define 'as'."
+                    )
+
+                input_var = step_copy["with"]
+                if isinstance(input_var, str):
+                    new_as = f"intermediate_{input_var}"
+                    step_copy["as"] = new_as
+                else:
+                    raise ValueError(
+                        f"Cannot infer 'as' for step '{step_copy.get('name', 'unnamed')}' because 'with' is a list. Please define 'as' explicitly."
+                    )
+
+            prev_output_var = step_copy["as"]
+            resolved_steps.append(step_copy)
+
+        return resolved_steps
 
     def _preprocess_step_dict(self, step: dict) -> dict:
         if "type" in step:
@@ -111,6 +151,14 @@ class Loader:
             step["expr"] = step.pop("transform")
         else:
             raise ValueError(f"Step `{step.get('name', '<unnamed>')}` must contain either 'mutate' or 'transform'.")
+
+        if "with" in step:
+            v = step.pop("with")
+            step["input_vars"] = [v] if isinstance(v, str) else v
+        if "as" in step:
+            v = step.pop("as")
+            step["output_vars"] = [v] if isinstance(v, str) else v
+
         return step
 
     def _replace_with_key(self, obj: Any) -> Any:
