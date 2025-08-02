@@ -3,6 +3,7 @@ processes:
   - name: user_filter
     description: Filter users under 30
     io:
+      lazy: false
       inputs:
         - name: user
           # io_type: csv
