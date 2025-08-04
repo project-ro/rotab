@@ -771,6 +771,8 @@ def profile(
     output_filename: str = "./samples/all_columns_charts.html",
     date_format: str = "%Y-%m-%d %H:%M",
     exclude_columns_for_plot: Optional[List[str]] = None,
+    display_inline: bool = False,
+    open_in_browser: bool = False,
 ):
     if df.is_empty():
         print("Warning: Input DataFrame is empty. No charts will be generated.")
@@ -996,11 +998,14 @@ def profile(
         margin=dict(t=100, b=50, l=50, r=50),
     )
 
-    try:
-        fig.write_html(output_filename, auto_open=False)
-        print(f"All charts saved to: '{output_filename}'.")
-    except Exception as e:
-        print(f"An unexpected error occurred while saving the HTML file: {e}")
+    if display_inline:
+        fig.show()
+    else:
+        try:
+            fig.write_html(output_filename, auto_open=open_in_browser)
+            print(f"All charts saved to: '{output_filename}'.")
+        except Exception as e:
+            print(f"An unexpected error occurred while saving the HTML file: {e}")
 
 
 def profile_bivariate(
@@ -1008,6 +1013,8 @@ def profile_bivariate(
     column_pairs: List[Tuple[str, str]],
     output_filename: str = "./samples/bivariate_report.html",
     date_format: str = "%Y-%m-%d %H:%M",
+    display_inline: bool = False,
+    open_in_browser: bool = False,
 ):
     if df.is_empty():
         print("Warning: Input DataFrame is empty. No bivariate charts will be generated.")
@@ -1032,6 +1039,12 @@ def profile_bivariate(
             print(f"Warning: One or both columns '{col1_name}', '{col2_name}' not found in DataFrame. Skipping pair.")
             continue
 
+        # Boolean列をCategoricalとして扱う
+        for col in [col1_name, col2_name]:
+            if processed_df[col].dtype == pl.Boolean:
+                processed_df = processed_df.with_columns(
+                    processed_df[col].cast(pl.Utf8).cast(pl.Categorical).alias(col)
+                )
         paired_df_cleaned = processed_df.select([col1_name, col2_name]).drop_nulls()
         if paired_df_cleaned.is_empty():
             print(f"Warning: Pair ({col1_name}, {col2_name}) is empty after dropping nulls. Skipping plot.")
@@ -1039,6 +1052,14 @@ def profile_bivariate(
 
         s1_cleaned = paired_df_cleaned.get_column(col1_name)
         s2_cleaned = paired_df_cleaned.get_column(col2_name)
+
+        if s1_cleaned.null_count() == s1_cleaned.len():
+            print(f"Error: Column '{col1_name}' is entirely null. Skipping pair.")
+            continue
+        if s2_cleaned.null_count() == s2_cleaned.len():
+            print(f"Error: Column '{col2_name}' is entirely null. Skipping pair.")
+            continue
+
         type1 = s1_cleaned.dtype
         type2 = s2_cleaned.dtype
 
@@ -1239,12 +1260,14 @@ def profile_bivariate(
         barmode="stack",
     )
 
-    try:
-        fig.write_html(output_filename, auto_open=False)
-        print(f"Bivariate charts saved to: '{output_filename}'.")
-        print(f"Please open '{output_filename}' in your web browser to view the report.")
-    except Exception as e:
-        print(f"An unexpected error occurred while saving the HTML file: {e}")
+    if display_inline:
+        fig.show()
+    else:
+        try:
+            fig.write_html(output_filename, auto_open=open_in_browser)
+            print(f"All charts saved to: '{output_filename}'.")
+        except Exception as e:
+            print(f"An unexpected error occurred while saving the HTML file: {e}")
 
 
 import polars as pl

@@ -39,6 +39,7 @@ from rotab.ast.util import INDENT
                 "",
                 # === Main function ===
                 "def transaction_enrichment():",
+                INDENT + "print('Running process: transaction_enrichment')",
                 INDENT
                 + "user = pd.read_csv(\"user.csv\", dtype={'user_id': 'str', 'age': 'int', 'log_age': 'float', 'age_bucket': 'int'})",
                 INDENT + "result = step_step_merge_transaction_enrichment(user)",
@@ -84,6 +85,7 @@ from rotab.ast.util import INDENT
                 "",
                 # === Main function ===
                 "def transaction_enrichment():",
+                INDENT + "print('Running process: transaction_enrichment')",
                 INDENT
                 + 'user = pl.scan_csv("user.csv", dtypes={"user_id": pl.Utf8, "age": pl.Int64, "log_age": pl.Float64, "age_bucket": pl.Int64})',
                 INDENT + "result = step_step_merge_transaction_enrichment(user)",

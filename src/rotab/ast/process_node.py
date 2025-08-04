@@ -120,6 +120,8 @@ class ProcessNode(Node):
         if self.description:
             main_lines.append(textwrap.indent(f'"""{self.description.strip()}"""', INDENT))
 
+        main_lines.append(textwrap.indent(f"print('Running process: {self.name}')", INDENT))
+
         # Input nodes
         for inp in self.inputs:
             inp.validate(context)

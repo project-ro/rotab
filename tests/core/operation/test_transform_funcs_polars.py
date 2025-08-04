@@ -562,24 +562,27 @@ def test_profile_bivariate_valid_data():
                 "2023-11-09 18:00",
                 "2023-11-11 11:00",
             ],
+            "購入完了": [True, False, True, True, False, False, True, True, False, True],  # Boolean列
+            "キャンペーン割引": [None] * 10,  # 全欠損列
         }
     )
 
     column_pairs = [
-        ("売上高", "顧客年齢"),  # Numerical x Numerical
-        ("売上高", "商品カテゴリ"),  # Numerical x Categorical
-        ("商品カテゴリ", "店舗ID"),  # Categorical x Categorical
-        ("購入日時", "売上高"),  # Datetime x Numerical
-        ("購入日時", "商品カテゴリ"),  # Datetime x Categorical
-        ("購入日時", "イベント日"),  # Datetime x Datetime
-        ("店舗ID", "商品カテゴリ"),  # Another Categorical x Categorical
+        ("売上高", "顧客年齢"),
+        ("売上高", "商品カテゴリ"),
+        ("商品カテゴリ", "店舗ID"),
+        ("購入日時", "売上高"),
+        ("購入日時", "商品カテゴリ"),
+        ("購入日時", "イベント日"),
+        ("店舗ID", "商品カテゴリ"),
+        ("購入完了", "売上高"),  # Boolean x Numerical
+        ("キャンペーン割引", "商品カテゴリ"),  # 全欠損 x Categorical
     ]
 
     output_file = "./samples/bivariate_report_valid_data.html"
     profile_bivariate(sample_pl_df, column_pairs, output_file, date_format="%Y-%m-%d %H:%M")
 
     assert os.path.exists(output_file)
-    # Check if the file is not empty
     assert os.path.getsize(output_file) > 0
 
 

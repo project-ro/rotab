@@ -112,6 +112,7 @@ from rotab.ast.util import INDENT
                 "def transaction_enrichment():",
                 INDENT
                 + '"""This process enriches user transactions by filtering users based on age and\n    transactions based on amount, then merging the two datasets."""',
+                INDENT + "print('Running process: transaction_enrichment')",
                 INDENT
                 + "user = pd.read_csv(\"../../output/filtered_users.csv\", dtype={'user_id': 'str', 'age': 'int', 'log_age': 'float', 'age_bucket': 'int'})",
                 INDENT
