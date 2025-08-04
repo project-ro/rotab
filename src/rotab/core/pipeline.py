@@ -98,8 +98,13 @@ class Pipeline:
         for template in self.templates:
             for proc in template.processes:
                 for node in proc.inputs:
+                    print(f"DEGUB: {node.path}")
+
                     if self.is_remote_path(node.path):
+                        print("DEBUG: Skipping remote path")
                         continue
+
+                    print("DEBUG: not remote path")
 
                     if "*" in node.path:
                         pattern = node.path
