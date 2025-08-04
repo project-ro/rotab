@@ -782,7 +782,7 @@ def profile(
         is_handled = False
         if non_null_series.dtype == pl.String:
             try:
-                parsed_datetime_series = _parse_date_column(pl.lit(non_null_series), date_format).to_series()
+                parsed_datetime_series = _parse_date_column(non_null_series, date_format).to_series()
                 if parsed_datetime_series.dtype == pl.Datetime and parsed_datetime_series.drop_nulls().len() > 0:
                     plot_info.append(
                         {
@@ -818,6 +818,20 @@ def profile(
                     "data": {"categories": sorted_categories, "counts": sorted_counts},
                 }
             )
+        elif non_null_series.dtype == pl.Boolean:
+            counts_pl_df = non_null_series.value_counts()
+            sorted_counts_pl_df = counts_pl_df.sort(["count", col_name], descending=[True, False])
+            plot_info.append(
+                {
+                    "name": col_name,
+                    "type": "categorical",
+                    "rows": 1,
+                    "data": {
+                        "categories": sorted_counts_pl_df[col_name].to_numpy(),
+                        "counts": sorted_counts_pl_df["count"].to_numpy(),
+                    },
+                }
+            )
         else:
             print(
                 f"Warning: Column '{col_name}' has an unhandled data type ({non_null_series.dtype}). Skipping chart generation."
@@ -843,7 +857,7 @@ def profile(
         rows=total_rows,
         cols=1,
         shared_xaxes=False,
-        vertical_spacing=0.03,
+        vertical_spacing=0.01,
         subplot_titles=subplot_titles,
     )
 

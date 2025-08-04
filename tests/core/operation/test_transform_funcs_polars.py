@@ -485,6 +485,7 @@ def test_profile():
             ],
             "店舗ID": ["A", "B", "A", "C", "B", "A", "C", "B", "A"],
             "顧客年齢": np.random.normal(loc=35, scale=10, size=9).astype(int),
+            "初回購入": [True, False, True, False, False, True, False, True, True],  # ← Boolean カラム
         }
     )
 

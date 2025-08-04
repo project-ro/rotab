@@ -1,8 +1,8 @@
 import polars as pl
 import ast
-from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE  # このパスはあなたの環境に合わせてください
+from rotab.core.operation.derive_funcs_polars import FUNC_NAMESPACE
 import inspect
-from typing import List, Dict, Any, Union, Tuple, Callable  # 型ヒントを追加
+from typing import List, Dict, Any, Union, Tuple, Callable
 
 
 def parse_derive_expr(derive_str: str) -> List[pl.Expr]:
