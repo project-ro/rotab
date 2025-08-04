@@ -4,6 +4,7 @@ from datetime import date
 from math import isclose
 import polars as pl
 import pytest
+import tempfile
 from polars.testing import assert_frame_equal
 from rotab.core.operation.transform_funcs_polars import (
     normalize_dtype,
@@ -485,12 +486,19 @@ def test_profile():
             ],
             "店舗ID": ["A", "B", "A", "C", "B", "A", "C", "B", "A"],
             "顧客年齢": np.random.normal(loc=35, scale=10, size=9).astype(int),
-            "初回購入": [True, False, True, False, False, True, False, True, True],  # ← Boolean カラム
+            "初回購入": [True, False, True, False, False, True, False, True, True],
+            "全てNULL列": [None] * 9,  # null-only column
+            "除外対象列": [f"user_{i}" for i in range(9)],  # 高カーディナリティ列
         }
     )
 
-    output_file = "./samples/test_combined_report_valid_data.html"
-    profile(sample_pl_df, output_file)
+    output_file = "./samples/test_profile.html"
+
+    profile(
+        sample_pl_df,
+        output_filename=output_file,
+        exclude_columns_for_plot=["除外対象列"],
+    )
 
     assert os.path.exists(output_file)
     assert os.path.getsize(output_file) > 0

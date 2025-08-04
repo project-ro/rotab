@@ -645,7 +645,7 @@ def plot_numerical_distribution(data: np.ndarray, column_name: str, output_filen
         rows=2,
         cols=1,
         shared_xaxes=True,  # Share the X-axis for better comparison
-        vertical_spacing=0.1,  # Space between subplots
+        vertical_spacing=0.13,  # Space between subplots
         subplot_titles=(f"Histogram of {column_name}", f"Boxplot of {column_name}"),
     )
 
@@ -681,7 +681,7 @@ def plot_numerical_distribution(data: np.ndarray, column_name: str, output_filen
     fig.update_layout(
         title={
             "text": f"Distribution of Numerical Data for Column: {column_name}",
-            "font_size": 24,  # Main title font size
+            "font_size": 12,  # Main title font size
             "x": 0.5,  # Center the main title
             "xanchor": "center",
         },
@@ -692,11 +692,11 @@ def plot_numerical_distribution(data: np.ndarray, column_name: str, output_filen
 
     # Customize axis titles and tick fonts for each subplot
     # Row 1 (Histogram)
-    fig.update_xaxes(title_text="Value", title_font_size=18, tickfont_size=16, row=1, col=1)
-    fig.update_yaxes(title_text="Frequency", title_font_size=18, tickfont_size=16, row=1, col=1)
+    fig.update_xaxes(title_text="Value", title_font_size=12, tickfont_size=10, row=1, col=1)
+    fig.update_yaxes(title_text="Frequency", title_font_size=12, tickfont_size=10, row=1, col=1)
 
     # Row 2 (Boxplot)
-    fig.update_xaxes(title_text="Value", title_font_size=18, tickfont_size=16, row=2, col=1)
+    fig.update_xaxes(title_text="Value", title_font_size=12, tickfont_size=10, row=2, col=1)
     # For a horizontal boxplot, y-axis is categorical (implicitly), no title needed
     fig.update_yaxes(visible=False, row=2, col=1)  # Hide y-axis for cleaner boxplot
 
@@ -740,8 +740,8 @@ def plot_timeseries_histogram(dates: np.ndarray, column_name: str):
         },
         xaxis_title_text="Date",
         yaxis_title_text="Frequency",
-        xaxis=dict(type="date", tickfont_size=16, title_font_size=18),  # Ensure x-axis is treated as a date axis
-        yaxis=dict(tickfont_size=16, title_font_size=18),
+        xaxis=dict(type="date", tickfont_size=10, title_font_size=12),  # Ensure x-axis is treated as a date axis
+        yaxis=dict(tickfont_size=10, title_font_size=12),
         height=600,  # Height of the figure
         width=1000,  # Width of the figure
         bargap=0.1,  # Gap between bars for better visualization
@@ -759,30 +759,50 @@ def plot_timeseries_histogram(dates: np.ndarray, column_name: str):
         print(f"An unexpected error occurred while saving the HTML file: {e}")
 
 
+import polars as pl
+import numpy as np
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+from typing import Optional, List
+
+
 def profile(
     df: pl.DataFrame,
     output_filename: str = "./samples/all_columns_charts.html",
     date_format: str = "%Y-%m-%d %H:%M",
+    exclude_columns_for_plot: Optional[List[str]] = None,
 ):
     if df.is_empty():
         print("Warning: Input DataFrame is empty. No charts will be generated.")
         return
 
+    exclude_columns_for_plot = exclude_columns_for_plot or []
     plot_info = []
+    MAX_CATEGORIES = 50
+
     for col_name in df.columns:
+        if col_name in exclude_columns_for_plot:
+            print(f"Skipping column '{col_name}' (excluded by user).")
+            continue
+
         series = df.get_column(col_name)
         non_null_series = series.drop_nulls()
 
         if non_null_series.is_empty():
-            print(
-                f"Warning: Column '{col_name}' is empty after dropping nulls. Skipping chart generation for this column."
+            plot_info.append(
+                {
+                    "name": col_name,
+                    "type": "null_only",
+                    "rows": 1,
+                    "data": None,
+                }
             )
             continue
 
         is_handled = False
         if non_null_series.dtype == pl.String:
             try:
-                parsed_datetime_series = _parse_date_column(non_null_series, date_format).to_series()
+                parsed_datetime_series = _parse_date_column(non_null_series, date_format)
                 if parsed_datetime_series.dtype == pl.Datetime and parsed_datetime_series.drop_nulls().len() > 0:
                     plot_info.append(
                         {
@@ -793,53 +813,67 @@ def profile(
                         }
                     )
                     is_handled = True
-            except Exception as e:
-                print(f"Warning: Failed to parse datetime for column '{col_name}': {e}")
+            except Exception:
+                pass  # skip silently
 
         if is_handled:
             continue
 
         if non_null_series.dtype.is_numeric():
-            plot_info.append({"name": col_name, "type": "numerical", "rows": 2, "data": non_null_series.to_numpy()})
-        elif non_null_series.dtype == pl.Datetime:
-            plot_info.append({"name": col_name, "type": "datetime", "rows": 1, "data": non_null_series.to_numpy()})
-        elif non_null_series.dtype == pl.String or non_null_series.dtype == pl.Categorical:
-            counts_pl_df = non_null_series.value_counts()
-            category_col_name = col_name
-            count_col_name = "count"
-            sorted_counts_pl_df = counts_pl_df.sort([count_col_name, category_col_name], descending=[True, False])
-            sorted_categories = sorted_counts_pl_df[category_col_name].to_numpy()
-            sorted_counts = sorted_counts_pl_df[count_col_name].to_numpy()
             plot_info.append(
                 {
                     "name": col_name,
-                    "type": "categorical",
-                    "rows": 1,
-                    "data": {"categories": sorted_categories, "counts": sorted_counts},
+                    "type": "numerical",
+                    "rows": 2,
+                    "data": non_null_series.to_numpy(),
                 }
             )
-        elif non_null_series.dtype == pl.Boolean:
-            counts_pl_df = non_null_series.value_counts()
-            sorted_counts_pl_df = counts_pl_df.sort(["count", col_name], descending=[True, False])
+        elif non_null_series.dtype == pl.Datetime:
+            plot_info.append(
+                {
+                    "name": col_name,
+                    "type": "datetime",
+                    "rows": 1,
+                    "data": non_null_series.to_numpy(),
+                }
+            )
+        elif non_null_series.dtype == pl.String or non_null_series.dtype == pl.Categorical:
+            counts_df = non_null_series.value_counts()
+            if counts_df.shape[0] > MAX_CATEGORIES:
+                print(f"Skipping column '{col_name}' (too many categories: {counts_df.shape[0]}).")
+                continue
+            sorted_df = counts_df.sort(["count", col_name], descending=[True, False])
             plot_info.append(
                 {
                     "name": col_name,
                     "type": "categorical",
                     "rows": 1,
                     "data": {
-                        "categories": sorted_counts_pl_df[col_name].to_numpy(),
-                        "counts": sorted_counts_pl_df["count"].to_numpy(),
+                        "categories": sorted_df[col_name].to_numpy(),
+                        "counts": sorted_df["count"].to_numpy(),
+                    },
+                }
+            )
+        elif non_null_series.dtype == pl.Boolean:
+            counts_df = non_null_series.value_counts()
+            sorted_df = counts_df.sort(["count", col_name], descending=[True, False])
+            plot_info.append(
+                {
+                    "name": col_name,
+                    "type": "categorical",
+                    "rows": 1,
+                    "data": {
+                        "categories": sorted_df[col_name].to_numpy(),
+                        "counts": sorted_df["count"].to_numpy(),
                     },
                 }
             )
         else:
-            print(
-                f"Warning: Column '{col_name}' has an unhandled data type ({non_null_series.dtype}). Skipping chart generation."
-            )
+            print(f"Warning: Column '{col_name}' has unhandled dtype ({non_null_series.dtype}). Skipping.")
             continue
 
     if not plot_info:
-        print("No suitable columns found for plotting. No chart will be generated.")
+        print("No suitable columns found for plotting.")
         return
 
     total_rows = sum(item["rows"] for item in plot_info)
@@ -852,12 +886,14 @@ def profile(
             subplot_titles.append(f"Frequency of {item['name']}")
         elif item["type"] == "datetime":
             subplot_titles.append(f"Time-Series Histogram of {item['name']}")
+        elif item["type"] == "null_only":
+            subplot_titles.append(f"{item['name']} (all null)")
 
     fig = make_subplots(
         rows=total_rows,
         cols=1,
         shared_xaxes=False,
-        vertical_spacing=0.01,
+        vertical_spacing=min(0.01, 1 / max(1, total_rows - 1) * 0.8),
         subplot_titles=subplot_titles,
     )
 
@@ -866,18 +902,46 @@ def profile(
         col_name = item["name"]
         col_type = item["type"]
 
-        if col_type == "categorical":
-            sorted_categories = item["data"]["categories"]
-            sorted_counts = item["data"]["counts"]
+        if col_type == "null_only":
+            # 空の dummy trace を置く
             fig.add_trace(
-                go.Bar(y=sorted_categories, x=sorted_counts, orientation="h", marker_color="steelblue", name=col_name),
+                go.Scatter(x=[None], y=[None], showlegend=False),
                 row=current_row,
                 col=1,
             )
-            fig.update_xaxes(title_text="Count", title_font_size=18, tickfont_size=16, row=current_row, col=1)
-            fig.update_yaxes(
-                title_text="Category", title_font_size=18, tickfont_size=16, automargin=True, row=current_row, col=1
+            # アノテーションでメッセージを表示
+            fig.add_annotation(
+                text=f"Column '{col_name}' contains only null values.",
+                xref="x",
+                yref="y",
+                x=0.5,
+                y=0.5,
+                showarrow=False,
+                font=dict(size=16, color="red"),
+                row=current_row,
+                col=1,
             )
+            fig.update_xaxes(visible=False, row=current_row, col=1)
+            fig.update_yaxes(visible=False, row=current_row, col=1)
+            current_row += 1
+            continue
+
+        if col_type == "categorical":
+            cats = item["data"]["categories"]
+            counts = item["data"]["counts"]
+            fig.add_trace(
+                go.Bar(
+                    y=cats,
+                    x=counts,
+                    orientation="h",
+                    marker_color="steelblue",
+                    name=col_name,
+                ),
+                row=current_row,
+                col=1,
+            )
+            fig.update_xaxes(title_text="Count", row=current_row, col=1)
+            fig.update_yaxes(title_text="Category", row=current_row, col=1)
             current_row += 1
 
         elif col_type == "numerical":
@@ -891,10 +955,8 @@ def profile(
                 row=current_row,
                 col=1,
             )
-            fig.update_yaxes(title_text="Frequency", title_font_size=18, tickfont_size=16, row=current_row, col=1)
-            fig.update_xaxes(
-                title_text="Value", title_font_size=18, tickfont_size=16, range=x_range, row=current_row, col=1
-            )
+            fig.update_yaxes(title_text="Frequency", row=current_row, col=1)
+            fig.update_xaxes(title_text="Value", range=x_range, row=current_row, col=1)
             current_row += 1
 
             fig.add_trace(
@@ -912,23 +974,23 @@ def profile(
                 col=1,
             )
             fig.update_yaxes(visible=False, row=current_row, col=1)
-            fig.update_xaxes(
-                title_text="Value", title_font_size=18, tickfont_size=16, range=x_range, row=current_row, col=1
-            )
+            fig.update_xaxes(title_text="Value", range=x_range, row=current_row, col=1)
             current_row += 1
 
         elif col_type == "datetime":
             col_data = item["data"]
-            fig.add_trace(go.Histogram(x=col_data, name=col_name, marker_color="steelblue"), row=current_row, col=1)
-            fig.update_xaxes(
-                title_text="Date", title_font_size=18, tickfont_size=16, type="date", row=current_row, col=1
+            fig.add_trace(
+                go.Histogram(x=col_data, name=col_name, marker_color="steelblue"),
+                row=current_row,
+                col=1,
             )
-            fig.update_yaxes(title_text="Frequency", title_font_size=18, tickfont_size=16, row=current_row, col=1)
+            fig.update_xaxes(title_text="Date", type="date", row=current_row, col=1)
+            fig.update_yaxes(title_text="Frequency", row=current_row, col=1)
             current_row += 1
 
     fig.update_layout(
         title={"text": "Comprehensive Data Distribution Analysis", "font_size": 28, "x": 0.5, "xanchor": "center"},
-        height=400 * total_rows,
+        height=800 * total_rows,
         width=1200,
         showlegend=False,
         margin=dict(t=100, b=50, l=50, r=50),
@@ -937,7 +999,6 @@ def profile(
     try:
         fig.write_html(output_filename, auto_open=False)
         print(f"All charts saved to: '{output_filename}'.")
-        print(f"Please open '{output_filename}' in your web browser to view the combined report.")
     except Exception as e:
         print(f"An unexpected error occurred while saving the HTML file: {e}")
 
@@ -1157,12 +1218,12 @@ def profile_bivariate(
             yaxis_type = "date"
 
         fig.update_xaxes(
-            title_text=xaxis_title, title_font_size=18, tickfont_size=16, type=xaxis_type, row=i + 1, col=1
+            title_text=xaxis_title, title_font_size=12, tickfont_size=10, type=xaxis_type, row=i + 1, col=1
         )
         fig.update_yaxes(
             title_text=yaxis_title,
-            title_font_size=18,
-            tickfont_size=16,
+            title_font_size=12,
+            tickfont_size=10,
             automargin=True,
             type=yaxis_type,
             row=i + 1,
