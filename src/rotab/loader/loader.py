@@ -28,6 +28,10 @@ class Loader:
         templates = self._resolve_steps(templates)
         return [self._to_node(t) for t in templates]
 
+    def _is_remote_path(self, path: str) -> bool:
+        path = str(path)
+        return path.startswith(("s3://", "s3a://", "gs://", "http://", "https://"))
+
     def _load_all_templates(self) -> List[dict]:
         templates = []
         for filename in os.listdir(self.template_dir):
@@ -82,8 +86,11 @@ class Loader:
                         schema_name = io_def.get("schema_name")
 
                         if original_path:
-                            abs_path = str((self.template_dir / original_path).resolve())
-                            io_def["path"] = abs_path
+                            if not self._is_remote_path(original_path):
+                                abs_path = str((self.template_dir / original_path).resolve())
+                                io_def["path"] = abs_path
+                            else:
+                                io_def["path"] = original_path
                         elif schema_name:
                             var_info = self.schema_manager.get_schema(schema_name, raise_error=False)
                             if var_info and var_info.path:
