@@ -4,7 +4,7 @@ import shutil
 import glob
 from copy import deepcopy
 from typing import Optional, List
-
+import tempfile
 from rotab.loader.loader import Loader
 from rotab.loader.schema_manager import SchemaManager
 from rotab.loader.context_builder import ContextBuilder
@@ -190,19 +190,36 @@ class Pipeline:
         logger.info(f"Mermaid DAG generated at: {path}")
 
     def execute_script(self, source_dir: str) -> None:
+        # SageMaker でもローカルでも動く一時ディレクトリ生成
+        tmpdir_base = "/opt/ml/tmp" if os.path.exists("/opt/ml/tmp") else None
+        tmpdir = tempfile.mkdtemp(prefix="rotab_tmp_", dir=tmpdir_base)
+
+        env = os.environ.copy()
+        env["TMPDIR"] = tmpdir
+
         try:
-            subprocess.run(
+            proc = subprocess.Popen(
                 ["python", "main.py"],
                 cwd=source_dir,
-                check=True,
-                capture_output=True,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
             )
+
+            for line in proc.stdout:
+                logger.info(line.rstrip())  # printなし、logger.infoのみ
+
+            proc.wait()
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, proc.args)
+
         except subprocess.CalledProcessError as e:
             logger.error("Script execution failed.")
-            logger.error(f"STDOUT:\n{e.stdout}")
-            logger.error(f"STDERR:\n{e.stderr}")
             raise
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def run(self, execute: bool = True, dag: bool = False, selected_processes: Optional[List[str]] = None) -> None:
         logger.info("Pipeline run started.")

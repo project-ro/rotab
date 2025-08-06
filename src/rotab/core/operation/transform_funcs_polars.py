@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 import shap
 import joblib
 from pathlib import Path
+from typing import Union
 
 
 def normalize_dtype(dtype: str):
@@ -219,8 +220,8 @@ def _parse_date_column(column: pl.Expr, fmt: str) -> pl.Expr:
 
 
 def month_window(
-    df_base: pl.LazyFrame | pl.DataFrame,
-    df_data: pl.LazyFrame | pl.DataFrame,
+    df_base: Union[pl.LazyFrame, pl.DataFrame],
+    df_data: Union[pl.LazyFrame, pl.DataFrame],
     date_col: str,
     date_format: str,
     value_cols: List[str],
