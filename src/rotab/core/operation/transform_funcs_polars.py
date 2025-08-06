@@ -218,13 +218,9 @@ def _parse_date_column(column: pl.Expr, fmt: str) -> pl.Expr:
     return column.str.strptime(pl.Datetime, fmt)
 
 
-import polars as pl
-from typing import List
-
-
 def month_window(
-    df_base: pl.LazyFrame,
-    df_data: pl.LazyFrame,
+    df_base: pl.LazyFrame | pl.DataFrame,
+    df_data: pl.LazyFrame | pl.DataFrame,
     date_col: str,
     date_format: str,
     value_cols: List[str],
@@ -240,6 +236,9 @@ def month_window(
     _window_end = "__mw_window_end__"
     _join_key = "__mw_join_key__"
 
+    df_base = df_base.lazy() if isinstance(df_base, pl.DataFrame) else df_base
+    df_data = df_data.lazy() if isinstance(df_data, pl.DataFrame) else df_data
+
     df_base_prepared = df_base.with_columns(
         [
             pl.col(date_col)
@@ -250,7 +249,6 @@ def month_window(
         ]
     )
     df_base_processed = df_base_prepared.with_row_index(_row_id)
-    df_base_processed = df_base_processed.collect().lazy()
 
     results = []
 
