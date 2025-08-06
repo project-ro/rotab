@@ -128,7 +128,7 @@ from rotab.ast.util import INDENT
                 INDENT + 'final_output["high_value"] = final_output["high_value"].astype("bool")',
                 INDENT
                 + "final_output.to_csv(\"../../output/final_output.csv\", index=False, columns=['user_id', 'age', 'log_age', 'age_bucket', 'high_value'])",
-                INDENT + 'print("result shape:", final_output.shape)',
+                # INDENT + 'print("result shape:", final_output.shape)',
                 INDENT + "return final_output",
                 "",
                 "",

@@ -142,8 +142,6 @@ class ProcessNode(Node):
             return_vars = (
                 self.outputs[0].name if len(self.outputs) == 1 else ", ".join(out.name for out in self.outputs)
             )
-            for var in return_vars.split(", "):
-                main_lines.append(textwrap.indent(f'print("result shape:", {var}.shape)', INDENT))
             main_lines.append(textwrap.indent(f"return {return_vars}", INDENT))
 
         main_lines.extend(["", ""])

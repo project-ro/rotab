@@ -20,12 +20,14 @@ def step_summarize_transactions_trans_summary(trans):
 
 def trans_summary():
     """Summarize transaction amounts"""
+    print('Running process: trans_summary')
     trans = pl.read_csv("data/inputs/transaction.csv", dtypes={"id": pl.Utf8, "user_id": pl.Utf8, "amount": pl.Int64})
     filtered_transactions = step_summarize_transactions_trans_summary(trans)
     filtered_transactions = filtered_transactions.with_columns(pl.col("user_id").cast(pl.Utf8))
     filtered_transactions = filtered_transactions.with_columns(pl.col("amount").cast(pl.Int64))
     filtered_transactions = filtered_transactions.with_columns(pl.col("is_large").cast(pl.Boolean))
     filtered_transactions.write_csv("data/outputs/filtered_transactions.csv")
+    print("result shape:", filtered_transactions.shape)
     return filtered_transactions
 
 

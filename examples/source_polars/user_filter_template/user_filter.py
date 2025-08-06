@@ -20,12 +20,16 @@ def step_filter_users_user_filter(user):
 
 def user_filter():
     """Filter users under 30"""
-    user = pl.read_csv("data/inputs/user.csv", dtypes={"id": pl.Utf8, "user_id": pl.Utf8, "age": pl.Int64})
+    print('Running process: user_filter')
+    user = pl.scan_csv("data/inputs/user.csv", dtypes={"id": pl.Utf8, "user_id": pl.Utf8, "age": pl.Int64})
     filtered_users = step_filter_users_user_filter(user)
     filtered_users = filtered_users.with_columns(pl.col("user_id").cast(pl.Utf8))
     filtered_users = filtered_users.with_columns(pl.col("age").cast(pl.Int64))
     filtered_users = filtered_users.with_columns(pl.col("age_group").cast(pl.Int64))
-    filtered_users.write_csv("data/outputs/filtered_users.csv")
+    with fsspec.open("data/outputs/filtered_users.csv", "wb") as f:
+        _collected = filtered_users.collect(streaming=True)
+        _collected.write_csv(f)
+        print('result shape:', _collected.shape)
     return filtered_users
 
 

@@ -217,14 +217,24 @@ class OutputNode(IOBaseNode):
                 scripts.append(f'{self.name} = {self.name}.with_columns(pl.col("{col}").cast(pl.{pl_dtype}))')
 
         if self.lazy:
-            collect_expr = ".collect(streaming=True)"
-            scripts.append(f'with fsspec.open("{self.path}", "w") as f:')
+            # with fsspec.open("data/outputs/filtered_users.csv", "w") as f:
+            #     _collected = filtered_users.collect(streaming=True)
+            #     _collected .write_csv(f)
+            #     print("result shape:", _collected.shape)
+            # return filtered_users
+
+            scripts.append(f'with fsspec.open("{self.path}", "wb") as f:')
+            scripts.append(f"    _collected = {self.name}.collect(streaming=True)")
+
             if self.io_type == "csv":
-                scripts.append(f"    {self.name}{collect_expr}.write_csv(f)")
+                scripts.append(f"    _collected.write_csv(f)")
             elif self.io_type == "parquet":
-                scripts.append(f"    {self.name}{collect_expr}.write_parquet(f)")
+                scripts.append(f"    _collected.write_parquet(f)")
             else:
                 raise ValueError(f"Unsupported io_type: {self.io_type}")
+
+            scripts.append(f"    print('result shape:', _collected.shape)")
+
         else:
             # EagerFrame: no collect, direct write
             if self.io_type == "csv":
@@ -233,6 +243,8 @@ class OutputNode(IOBaseNode):
                 scripts.append(f'{self.name}.write_parquet("{self.path}")')
             else:
                 raise ValueError(f"Unsupported io_type: {self.io_type}")
+
+            scripts.append(f'print("result shape:", {self.name}.shape)')
 
         return scripts
 
