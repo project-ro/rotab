@@ -81,6 +81,7 @@ def transaction_enrichment():
     final_output = final_output.with_columns(pl.col("high_value").cast(pl.Int64))
     final_output.write_csv("data/outputs/final_output.csv")
     print("result shape:", final_output.shape)
+    print_all_null_columns(final_output)
     return final_output
 
 

@@ -234,6 +234,7 @@ class OutputNode(IOBaseNode):
                 raise ValueError(f"Unsupported io_type: {self.io_type}")
 
             scripts.append(f"    print('result shape:', _collected.shape)")
+            scripts.append(f"    print_all_null_columns(_collected)")
 
         else:
             # EagerFrame: no collect, direct write
@@ -245,6 +246,7 @@ class OutputNode(IOBaseNode):
                 raise ValueError(f"Unsupported io_type: {self.io_type}")
 
             scripts.append(f'print("result shape:", {self.name}.shape)')
+            scripts.append(f"print_all_null_columns({self.name})")
 
         return scripts
 

@@ -28,7 +28,23 @@ from rotab.core.operation.transform_funcs_polars import (
     profile,
     profile_bivariate,
     month_window,
+    print_all_null_columns,
 )
+
+
+def test_print_all_null_columns_with_all_null(capsys):
+    df = pl.DataFrame({"col1": [None, None, None], "col2": [1, 2, 3]})
+    print_all_null_columns(df)
+    captured = capsys.readouterr()
+    assert "[Warning] Column 'col1' is entirely null." in captured.out
+    assert "col2" not in captured.out
+
+
+def test_print_all_null_columns_without_all_null(capsys):
+    df = pl.DataFrame({"col1": [1, None, None], "col2": [1, 2, 3]})
+    print_all_null_columns(df)
+    captured = capsys.readouterr()
+    assert captured.out.strip() == ""
 
 
 def test_normalize_dtype():

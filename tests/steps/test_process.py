@@ -94,6 +94,7 @@ from rotab.ast.util import INDENT
                 INDENT * 2 + "_collected = result.collect(streaming=True)",
                 INDENT * 2 + "_collected.write_csv(f)",
                 INDENT * 2 + "print('result shape:', _collected.shape)",
+                INDENT * 2 + "print_all_null_columns(_collected)",
                 INDENT + "return result",
                 "",
                 "",

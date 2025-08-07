@@ -30,6 +30,7 @@ def user_filter():
         _collected = filtered_users.collect(streaming=True)
         _collected.write_csv(f)
         print('result shape:', _collected.shape)
+        print_all_null_columns(_collected)
     return filtered_users
 
 

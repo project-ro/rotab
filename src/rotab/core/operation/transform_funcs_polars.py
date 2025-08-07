@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Union
 
 
+def print_all_null_columns(df: pl.DataFrame) -> None:
+    for col in df.columns:
+        if df.select(pl.col(col).is_null().all()).item():
+            print(f"[Warning] Column '{col}' is entirely null.")
+
+
 def normalize_dtype(dtype: str):
     mapping = {
         "int": pl.Int64,
