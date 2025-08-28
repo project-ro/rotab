@@ -1,4 +1,5 @@
 import os
+import shutil
 from typing import List, Dict, Optional
 from rotab.ast.template_node import TemplateNode
 from rotab.ast.context.validation_context import ValidationContext
@@ -62,11 +63,30 @@ class CodeGenerator:
             result[template.name] = template.generate_script(self.backend, self.context)
         return result
 
+    def _copy_sitecustomize(self, source_dir: str) -> None:
+        """
+        code_generator.py と同階層にある sitecustomize.py を source_dir にコピー。
+        無ければ何もしない。上書きする（最新を優先）。
+        """
+        here = os.path.dirname(os.path.abspath(__file__))
+        src = os.path.join(here, "sitecustomize.py")
+        dst = os.path.join(source_dir, "sitecustomize.py")
+        if os.path.isfile(src):
+            os.makedirs(source_dir, exist_ok=True)
+            shutil.copy2(src, dst)
+
     def write_all(self, source_dir: str, selected_processes: Optional[List[str]] = None) -> None:
         """
         Write scripts to source_dir/template_name/process_name.py
         Also generates source_dir/main.py that calls all (or selected) processes in dependency order.
+        さらに、同階層の sitecustomize.py があれば source_dir にコピーして、
+        Python 起動直後に自動読み込みされるようにする。
         """
+        os.makedirs(source_dir, exist_ok=True)
+
+        # sitecustomize.py をコピー（存在すれば）
+        self._copy_sitecustomize(source_dir)
+
         all_calls = []
 
         for template in self._resolve_template_order():
@@ -82,7 +102,7 @@ class CodeGenerator:
                     f.write("\n")
                 all_calls.append((process_name, template.name))
 
-        # main.py を生成
+        # main.py を生成（project_root を sys.path 先頭に入れるので sitecustomize.py は自動 import）
         main_path = os.path.join(source_dir, "main.py")
         with open(main_path, "w", encoding="utf-8") as f:
             f.write("import os\nimport sys\n")

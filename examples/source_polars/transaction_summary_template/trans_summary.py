@@ -1,6 +1,5 @@
 import os
 import sys
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import polars as pl
 import fsspec
@@ -13,15 +12,15 @@ from custom_functions.transform_funcs import *
 
 def step_summarize_transactions_trans_summary(trans):
     filtered_transactions = trans
-    filtered_transactions = filtered_transactions.filter(parse("amount > 0"))
-    filtered_transactions = filtered_transactions.with_columns(parse("is_large = amount > 5000"))
-    filtered_transactions = filtered_transactions.select(["user_id", "amount", "is_large"])
+    filtered_transactions = filtered_transactions.filter(parse('amount > 0'))
+    filtered_transactions = filtered_transactions.with_columns(parse('is_large = amount > 5000'))
+    filtered_transactions = filtered_transactions.select(['user_id', 'amount', 'is_large'])
     return filtered_transactions
 
 
 def trans_summary():
     """Summarize transaction amounts"""
-    print("Running process: trans_summary")
+    print('Running process: trans_summary')
     trans = pl.read_csv("data/inputs/transaction.csv", dtypes={"id": pl.Utf8, "user_id": pl.Utf8, "amount": pl.Int64})
     filtered_transactions = step_summarize_transactions_trans_summary(trans)
     filtered_transactions = filtered_transactions.with_columns(pl.col("user_id").cast(pl.Utf8))
@@ -35,3 +34,4 @@ def trans_summary():
 
 if __name__ == "__main__":
     trans_summary()
+

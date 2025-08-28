@@ -14,6 +14,7 @@ import shap
 import joblib
 from pathlib import Path
 from typing import Union
+from sklearn.metrics import mean_squared_error, r2_score
 
 
 def print_all_null_columns(df: pl.DataFrame) -> None:
@@ -225,6 +226,10 @@ def _parse_date_column(column: pl.Expr, fmt: str) -> pl.Expr:
     return column.str.strptime(pl.Datetime, fmt)
 
 
+import polars as pl
+from typing import Union, List, Optional
+
+
 def month_window(
     df_base: Union[pl.LazyFrame, pl.DataFrame],
     df_data: Union[pl.LazyFrame, pl.DataFrame],
@@ -233,66 +238,85 @@ def month_window(
     value_cols: List[str],
     months_list: List[int],
     new_col_name_prefix: str = "future_value",
-    metrics: List[str] = ["mean", "sum", "max"],
-    keys: List[str] = [],
-) -> pl.LazyFrame:
+    metrics: Optional[List[str]] = None,
+    keys: Optional[List[str]] = None,
+) -> Union[pl.LazyFrame, pl.DataFrame]:
+    metrics = metrics or ["mean", "sum", "max"]
+    keys = keys or []
+
+    base_was_lazy = isinstance(df_base, pl.LazyFrame)
+    data_was_lazy = isinstance(df_data, pl.LazyFrame)
+    return_lazy = base_was_lazy if (base_was_lazy != data_was_lazy) else base_was_lazy
+    df_base = df_base.lazy() if not base_was_lazy else df_base
+    df_data = df_data.lazy() if not data_was_lazy else df_data
+
+    # scratch names（外部へ絶対に漏らさない）
     _base_date = "__mw_base_date__"
+    _anchor = "__mw_anchor__"
+    _data_date_raw = "__mw_data_date_raw__"
     _data_date = "__mw_data_date__"
-    _row_id = "__mw_row_id__"
     _window_start = "__mw_window_start__"
     _window_end = "__mw_window_end__"
     _join_key = "__mw_join_key__"
 
-    df_base = df_base.lazy() if isinstance(df_base, pl.DataFrame) else df_base
-    df_data = df_data.lazy() if isinstance(df_data, pl.DataFrame) else df_data
+    # base: parse + key + anchor
+    df_base_prep = (
+        df_base.with_columns(
+            [
+                pl.col(date_col)
+                .str.strptime(pl.Datetime, date_format, strict=False)
+                .cast(pl.Datetime("us"))
+                .alias(_base_date),
+                (pl.concat_str([pl.col(k) for k in keys], separator="|") if keys else pl.lit("")).alias(_join_key),
+            ]
+        )
+        .with_columns(pl.col(_base_date).alias(_anchor))
+        .sort([_join_key, _base_date])
+    )
+    df_base_for_join = df_base_prep.select([_join_key, _base_date, _anchor])
 
-    df_base_prepared = df_base.with_columns(
+    # data: parse + key
+    df_data_parsed = df_data.with_columns(
         [
             pl.col(date_col)
             .str.strptime(pl.Datetime, date_format, strict=False)
             .cast(pl.Datetime("us"))
-            .alias(_base_date),
-            ((pl.concat_str([pl.col(k) for k in keys], separator="|") if keys else pl.lit("")).alias(_join_key)),
+            .alias(_data_date_raw),
+            (pl.concat_str([pl.col(k) for k in keys], separator="|") if keys else pl.lit("")).alias(_join_key),
         ]
     )
-    df_base_processed = df_base_prepared.with_row_index(_row_id)
 
     results = []
-
+    expected_cols = []  # ★追加：期待列の収集
     for m in months_list:
         suffix = f"_{abs(m)}m"
         direction = "past" if m < 0 else "future"
         join_strategy = "forward" if m < 0 else "backward"
 
-        df_data_corrected = df_data.with_columns(
-            [
-                (
-                    pl.col(date_col).str.strptime(pl.Datetime, date_format, strict=False)
-                    + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))
-                ).alias(_data_date),
-                ((pl.concat_str([pl.col(k) for k in keys], separator="|") if keys else pl.lit("")).alias(_join_key)),
-            ]
+        df_data_corrected = df_data_parsed.with_columns(
+            (pl.col(_data_date_raw) + (pl.duration(microseconds=1) if m < 0 else pl.duration(microseconds=0))).alias(
+                _data_date
+            )
         ).sort([_join_key, _data_date])
 
-        df_base_sorted = df_base_processed.sort([_join_key, _base_date])
-
         df_joined = df_data_corrected.join_asof(
-            df_base_sorted,
+            df_base_for_join,
             left_on=_data_date,
             right_on=_base_date,
             by=_join_key,
             strategy=join_strategy,
+            suffix="_r",
         )
 
         df_joined = df_joined.with_columns(
             [
                 pl.when(m < 0)
-                .then(pl.col(_base_date).dt.offset_by(f"{m}mo"))
-                .otherwise(pl.col(_base_date))
+                .then(pl.col(_anchor).dt.offset_by(f"{m}mo"))
+                .otherwise(pl.col(_anchor))
                 .alias(_window_start),
                 pl.when(m < 0)
-                .then(pl.col(_base_date))
-                .otherwise(pl.col(_base_date).dt.offset_by(f"{m}mo"))
+                .then(pl.col(_anchor))
+                .otherwise(pl.col(_anchor).dt.offset_by(f"{m}mo"))
                 .alias(_window_end),
             ]
         )
@@ -301,20 +325,31 @@ def month_window(
             (pl.col(_data_date) >= pl.col(_window_start)) & (pl.col(_data_date) < pl.col(_window_end))
         )
 
-        aggs = [
-            getattr(pl.col(col), metric)().alias(f"{new_col_name_prefix}_{col}_{metric}_{direction}{suffix}")
-            for col in value_cols
-            for metric in metrics
-        ]
+        aggs = []
+        for col in value_cols:
+            for metric in metrics:
+                cname = f"{new_col_name_prefix}_{col}_{metric}_{direction}{suffix}"
+                aggs.append(getattr(pl.col(col), metric)().alias(cname))
+                expected_cols.append(cname)  # ★収集
 
-        df_agg = df_filtered.group_by(keys + [_row_id]).agg(aggs)
-        results.append(df_agg)
+        group_keys = (keys + [_anchor]) if keys else [_anchor]
+        results.append(df_filtered.group_by(group_keys).agg(aggs))
 
-    final_df = df_base_processed
-    for res_df in results:
-        final_df = final_df.join(res_df, on=keys + [_row_id], how="left")
+    # join
+    final_lf = df_base_prep
+    join_keys = (keys + [_anchor]) if keys else [_anchor]
+    for res in results:
+        final_lf = final_lf.join(res, on=join_keys, how="left")
 
-    return final_df.drop(_row_id).drop(_base_date).drop(_join_key)
+    # 足りない列を None で補完
+    for c in expected_cols:
+        if c not in final_lf.columns:
+            final_lf = final_lf.with_columns(pl.lit(None).alias(c))
+
+    # 掃除
+    final_lf = final_lf.drop([_base_date, _join_key, _anchor])
+
+    return final_lf if return_lazy else final_lf.collect()
 
 
 def is_date_column(series: pl.Series, fmt: str = "%Y-%m-%d") -> bool:
@@ -1275,140 +1310,446 @@ def profile_bivariate(
             print(f"An unexpected error occurred while saving the HTML file: {e}")
 
 
-import polars as pl
-import lightgbm as lgb
-import optuna
-from sklearn.model_selection import train_test_split
-import shap
-import joblib
-import numpy as np
+import json
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from polars.exceptions import PolarsError
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional, List, Set, Callable, Any
 
-pl.enable_string_cache()
+import joblib
+import lightgbm as lgb
+import numpy as np
+import optuna
+import polars as pl
+import shap
+from polars.exceptions import PolarsError
+from sklearn.metrics import mean_squared_error, r2_score
+
+# ========= helpers =========
+
+NUMERIC_DTYPES = {
+    pl.Int8,
+    pl.Int16,
+    pl.Int32,
+    pl.Int64,
+    pl.UInt8,
+    pl.UInt16,
+    pl.UInt32,
+    pl.UInt64,
+    pl.Float32,
+    pl.Float64,
+}
+
+
+def _is_numeric_dtype(dt) -> bool:
+    return any(dt == t for t in NUMERIC_DTYPES)
+
+
+def _collect_onehot_mapping(df_with_dummies: pl.DataFrame, oh_cols: List[str]) -> Dict[str, List[str]]:
+    mapping: Dict[str, List[str]] = {}
+    cols = df_with_dummies.columns
+    for c in oh_cols:
+        pref = f"{c}_"
+        mapping[c] = [name for name in cols if name.startswith(pref)]
+    return mapping
+
+
+def _apply_onehot_and_align(
+    df: pl.DataFrame,
+    oh_cols: List[str],
+    drop_first: bool,
+    required_map: Dict[str, List[str]],
+) -> pl.DataFrame:
+    dfd = df.to_dummies(columns=oh_cols, drop_first=drop_first) if oh_cols else df
+    required_dummies = [col for cols in required_map.values() for col in cols]
+    missing = [c for c in required_dummies if c not in dfd.columns]
+    if missing:
+        dfd = dfd.with_columns([pl.lit(0.0).alias(c) for c in missing])
+    if oh_cols:
+        extra = [c for c in dfd.columns if any(c.startswith(f"{o}_") for o in oh_cols) and c not in required_dummies]
+        if extra:
+            dfd = dfd.drop(extra)
+    return dfd
+
+
+_BOOL_TOKENS_TRUE = {"true", "t", "yes", "y"}
+_BOOL_TOKENS_FALSE = {"false", "f", "no", "n"}
+
+
+def _looks_boolean_series(s: pl.Series) -> bool:
+    def ok(v) -> bool:
+        if v is None:
+            return True
+        v = str(v).strip().lower()
+        if v == "":
+            return True
+        return (v in _BOOL_TOKENS_TRUE) or (v in _BOOL_TOKENS_FALSE)
+
+    return all(ok(v) for v in s.unique().to_list())
+
+
+def _infer_boolean_columns_from_sample(
+    data_path: str,
+    candidate_cols: List[str],
+    sample_rows: int = 50000,
+) -> Set[str]:
+    if not candidate_cols:
+        return set()
+    dtypes = {c: pl.Utf8 for c in candidate_cols}
+    lf = pl.scan_csv(data_path, dtypes=dtypes)
+    sample = lf.select(candidate_cols).head(sample_rows).collect()
+    bool_cols: Set[str] = set()
+    for c in candidate_cols:
+        if c in sample.columns and _looks_boolean_series(sample[c]):
+            bool_cols.add(c)
+    return bool_cols
 
 
 def train_lgbm_with_optuna_multi_target(
     data_path: str,
-    features: list[str],
-    targets: list[str],
-    split_by: str = "timestamp",
+    features: List[str],
+    targets: List[str],
+    split_by: str = "timestamp",  # "timestamp" | "random"
     split_by_column: str = "yyyymm",
     timestamp_format: str = "%Y%m",
     test_size: float = 0.2,
     validate_size: float = 0.2,
     n_trials: int = 50,
     model_path: str = "./models",
+    log_period_optuna: int = 10,
+    log_period_final: int = 10,
+    run_id: Optional[str] = None,
+    # One-Hot
+    one_hot_cols: Optional[List[str]] = None,
+    one_hot_drop_first: bool = False,
+    # SHAP
+    shap_sample_size: int = 10000,
+    # 探索空間の外だし
+    search_space: Optional[Callable[[optuna.Trial], Dict[str, Any]]] = None,
+    # 簡易：各パラメータの(min,max)を渡す。未指定はデフォルト範囲
+    param_ranges: Optional[Dict[str, tuple]] = None,
+    # LightGBMの固定パラメータ（探索外）を外部から注入
+    lgb_static_params: Optional[Dict[str, Any]] = None,
+    # early stopping
+    early_stopping_rounds: Optional[int] = None,
+    # Optuna設定
+    optuna_direction: str = "minimize",
+    optuna_sampler: Optional[optuna.samplers.BaseSampler] = None,
+    # サンプルスキャン行数（Bool推定）
+    bool_infer_sample_rows: int = 50000,
 ) -> Dict[str, Tuple[lgb.Booster, pl.DataFrame]]:
+    """
+    戻り値: {target: (best_model, shap_importance_df)}
+    主要成果物は model_path 配下へ保存:
+      - optuna_trials.csv, metrics.csv
+      - lgbm_reg_{target}_model.joblib
+      - shap_values_{target}.csv
+      - onehot_columns.json（One-Hot使用時）
+    """
+
+    run_started_at = datetime.now(timezone.utc).isoformat()
+    if run_id is None:
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    print(f"[INFO] run_id={run_id} started_at(UTC)={run_started_at}")
+
+    # ---- IO（サンプルスキャンで Bool 列推定 → 型固定で全量読み込み）----
     try:
-        df = pl.read_csv(data_path, schema_overrides={split_by_column: pl.String})
+        print(f"[INFO] Loading data (with schema inference) from: {data_path}")
+
+        one_hot_set = set(one_hot_cols or [])
+        ft_cols = set(features + targets)
+
+        candidate_bool = sorted(list(ft_cols - {split_by_column} - one_hot_set))
+        inferred_bools = _infer_boolean_columns_from_sample(
+            data_path, candidate_bool, sample_rows=bool_infer_sample_rows
+        )
+        print(f"[INFO] Inferred boolean columns from sample: {sorted(inferred_bools)}")
+
+        schema_overrides: Dict[str, pl.DataType] = {}
+        schema_overrides[split_by_column] = pl.Utf8
+        for c in one_hot_set:
+            schema_overrides[c] = pl.Utf8
+        for c in ft_cols:
+            if c in schema_overrides:
+                continue
+            schema_overrides[c] = pl.Boolean if c in inferred_bools else pl.Float64
+
+        df = pl.read_csv(data_path, schema_overrides=schema_overrides)
+        print(f"[INFO] Data loaded: rows={df.shape[0]}, cols={df.shape[1]}")
     except (PolarsError, FileNotFoundError) as e:
-        print(f"Error occurred while loading data: {e}")
+        print(f"[ERROR] Error occurred while loading data: {e}")
         return {}
 
     Path(model_path).mkdir(parents=True, exist_ok=True)
+    print(f"[INFO] Model output directory: {model_path}")
 
+    optuna_log_path = Path(model_path) / "optuna_trials.csv"
+    metrics_path = Path(model_path) / "metrics.csv"
+    onehot_meta_path = Path(model_path) / "onehot_columns.json"
+
+    # ---- Split ----
     if split_by == "timestamp":
         if split_by_column not in df.columns:
             raise ValueError(f"The specified split column '{split_by_column}' does not exist in the data.")
 
+        print(f"[INFO] Converting '{split_by_column}' to date using format '{timestamp_format}'")
         try:
             df = df.with_columns(pl.col(split_by_column).str.to_date(timestamp_format).alias("_sort_by_date"))
         except pl.InvalidOperationError:
             raise ValueError(
-                f"Failed to convert column '{split_by_column}' to a date type using format '{timestamp_format}'. Invalid format."
+                f"Failed to convert column '{split_by_column}' to a date type using format '{timestamp_format}'."
             )
-
         df = df.sort(by="_sort_by_date")
-
         features_for_model = [f for f in features if f != split_by_column]
 
         n_total = len(df)
         n_test = int(n_total * test_size)
         n_validate = int(n_total * validate_size)
+        n_train = n_total - n_test - n_validate
+        if n_train <= 0 or n_validate <= 0 or n_test <= 0:
+            raise ValueError(f"Split sizes invalid (train={n_train}, validate={n_validate}, test={n_test}).")
+        print(f"[INFO] Split by timestamp: total={n_total}, train={n_train}, validate={n_validate}, test={n_test}")
 
-        df_train = df.head(n_total - n_test - n_validate)
-        df_validate = df.slice(n_total - n_test - n_validate, n_validate)
+        df_train = df.head(n_train)
+        df_validate = df.slice(n_train, n_validate)
         df_test = df.tail(n_test)
 
     elif split_by == "random":
-        features_for_model = features
-        df_train, df_temp = train_test_split(df, test_size=test_size + validate_size, random_state=42)
-        df_validate, df_test = train_test_split(
-            df_temp, test_size=test_size / (test_size + validate_size), random_state=42
+        features_for_model = features[:]
+        print("[INFO] Splitting data randomly (polars-based shuffle)")
+        df_shuf = df.sample(
+            fraction=1.0, with_replacement=False, shuffle=True, seed=(lgb_static_params or {}).get("seed", 42)
         )
+        n_total = len(df_shuf)
+        n_test = int(n_total * test_size)
+        n_validate = int(n_total * validate_size)
+        n_train = n_total - n_test - n_validate
+        if n_train <= 0 or n_validate <= 0 or n_test <= 0:
+            raise ValueError(f"Split sizes invalid (train={n_train}, validate={n_validate}, test={n_test}).")
+        print(f"[INFO] Split random: total={n_total}, train={n_train}, validate={n_validate}, test={n_test}")
+
+        df_train = df_shuf.head(n_train)
+        df_validate = df_shuf.slice(n_train, n_validate)
+        df_test = df_shuf.tail(n_test)
     else:
         raise ValueError("split_by must be 'timestamp' or 'random'.")
 
+    # ---- One-Hot strict ----
+    oh_cols = [c for c in (one_hot_cols or []) if c in df.columns and c != split_by_column]
+    dropped_oh = sorted(set(one_hot_cols or []) - set(oh_cols))
+    if dropped_oh:
+        print(f"[INFO] Skipped one-hot for columns (not found or split_by_column): {dropped_oh}")
+
+    onehot_required_map: Dict[str, List[str]] = {}
+    if oh_cols:
+        print(f"[INFO] One-hot strict (drop_first={one_hot_drop_first}) fit on train+validate")
+        fit_df = pl.concat([df_train, df_validate], how="vertical_relaxed")
+        fit_dummies = fit_df.to_dummies(columns=oh_cols, drop_first=one_hot_drop_first)
+        onehot_required_map = _collect_onehot_mapping(fit_dummies, oh_cols)
+
+        try:
+            meta = {"run_id": run_id, "drop_first": one_hot_drop_first, "mapping": onehot_required_map}
+            onehot_meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+            print(f"[INFO] One-hot metadata saved to: {onehot_meta_path}")
+        except Exception as e:
+            print(f"[WARN] Failed to save one-hot metadata: {e}")
+
+        df_train = _apply_onehot_and_align(df_train, oh_cols, one_hot_drop_first, onehot_required_map)
+        df_validate = _apply_onehot_and_align(df_validate, oh_cols, one_hot_drop_first, onehot_required_map)
+        df_test = _apply_onehot_and_align(df_test, oh_cols, one_hot_drop_first, onehot_required_map)
+
+        expanded = []
+        for f in features_for_model:
+            if f in onehot_required_map:
+                expanded.extend(onehot_required_map[f])
+            else:
+                expanded.append(f)
+        features_for_model = expanded
+        print(f"[INFO] features_for_model expanded to {len(features_for_model)} columns after one-hot")
+
+    # ---- DType safety ----
+    bad_cols: List[Tuple[str, str]] = []
+    casts = []
+    for c in features_for_model + targets:
+        if c not in df_train.columns:
+            raise ValueError(f"Column '{c}' not found in the split data.")
+        dt = df_train.schema[c]
+        if dt == pl.Boolean:
+            casts.append(pl.col(c).cast(pl.Float64))
+        elif _is_numeric_dtype(dt):
+            casts.append(pl.col(c).cast(pl.Float64))
+        else:
+            bad_cols.append((c, str(dt)))
+    if bad_cols:
+        raise ValueError(f"Non-numeric columns detected among features/targets: {bad_cols}")
+
+    df_train = df_train.with_columns(casts)
+    df_validate = df_validate.with_columns(casts)
+    df_test = df_test.with_columns(casts)
+
+    # ---- To numpy ----
     X_train_np = df_train[features_for_model].to_numpy(writable=True).astype(np.float32)
     X_validate_np = df_validate[features_for_model].to_numpy(writable=True).astype(np.float32)
     X_test_np = df_test[features_for_model].to_numpy(writable=True).astype(np.float32)
 
-    results = {}
+    # ---- Params base（外から全部上書き可能）----
+    base_params = {
+        "objective": "regression",
+        "metric": "rmse",
+        "seed": 42,
+        "n_jobs": -1,
+        "verbose": -1,
+    }
+    if lgb_static_params:
+        base_params.update(lgb_static_params)
+
+    # ---- Optuna ----
+    results: Dict[str, Tuple[lgb.Booster, pl.DataFrame]] = {}
+    study = optuna.create_study(direction=optuna_direction, sampler=optuna_sampler)
 
     for target in targets:
+        print(f"\n[INFO] ===== Target: {target} =====")
         y_train_np = df_train[target].to_numpy(writable=True).astype(np.float32)
         y_validate_np = df_validate[target].to_numpy(writable=True).astype(np.float32)
 
-        lgb_train = lgb.Dataset(X_train_np, y_train_np)
-        lgb_validate = lgb.Dataset(X_validate_np, y_validate_np)
+        lgb_train = lgb.Dataset(X_train_np, y_train_np, free_raw_data=False)
+        lgb_validate = lgb.Dataset(X_validate_np, y_validate_np, free_raw_data=False)
+        lgb_train.construct()
+        lgb_validate.construct()
 
-        def objective(trial):
-            params = {
-                "objective": "regression",
-                "metric": "rmse",
-                "n_estimators": trial.suggest_int("n_estimators", 100, 1000),
-                "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.1, log=True),
-                "num_leaves": trial.suggest_int("num_leaves", 2, 256),
-                "max_depth": trial.suggest_int("max_depth", 3, 15),
-                "subsample": trial.suggest_float("subsample", 0.5, 1.0),
-                "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
-                "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
-                "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 10.0, log=True),
-                "seed": 42,
-                "n_jobs": -1,
-                "verbose": -1,
-            }
+        trial_logs = []
+
+        def objective(trial: optuna.trial.Trial) -> float:
+            if search_space is not None:
+                tuned = search_space(trial)
+            else:
+                R = param_ranges or {}
+                tuned = {
+                    "n_estimators": trial.suggest_int("n_estimators", *R.get("n_estimators", (100, 1000))),
+                    "learning_rate": trial.suggest_float(
+                        "learning_rate", *R.get("learning_rate", (0.01, 0.1)), log=True
+                    ),
+                    "num_leaves": trial.suggest_int("num_leaves", *R.get("num_leaves", (2, 256))),
+                    "max_depth": trial.suggest_int("max_depth", *R.get("max_depth", (3, 15))),
+                    "subsample": trial.suggest_float("subsample", *R.get("subsample", (0.5, 1.0))),
+                    "colsample_bytree": trial.suggest_float("colsample_bytree", *R.get("colsample_bytree", (0.5, 1.0))),
+                    "reg_alpha": trial.suggest_float("reg_alpha", *R.get("reg_alpha", (1e-8, 10.0)), log=True),
+                    "reg_lambda": trial.suggest_float("reg_lambda", *R.get("reg_lambda", (1e-8, 10.0)), log=True),
+                }
+
+            params = {**base_params, **tuned}
+            print(f"[INFO] Trial {trial.number}: n_estimators={params.get('n_estimators')}")
 
             model = lgb.train(
                 params,
                 lgb_train,
                 valid_sets=[lgb_validate],
-                callbacks=[optuna.integration.LightGBMPruningCallback(trial, "rmse")],
+                num_boost_round=params.get("n_estimators"),
+                callbacks=[
+                    optuna.integration.LightGBMPruningCallback(trial, base_params.get("metric", "rmse")),
+                    *([lgb.early_stopping(early_stopping_rounds)] if early_stopping_rounds else []),
+                    lgb.log_evaluation(period=log_period_optuna),
+                ],
             )
-            return model.best_score["valid_0"]["rmse"]
+            rmse = model.best_score["valid_0"][base_params.get("metric", "rmse")]
+            print(f"[TRIAL] run_id={run_id} target={target} #{trial.number:03d} rmse={rmse:.5f}")
+            trial_logs.append(
+                {
+                    "run_id": run_id,
+                    "run_started_at": run_started_at,
+                    "target": target,
+                    "trial": trial.number,
+                    "rmse": float(rmse),
+                    "params": json.dumps(params, sort_keys=True),
+                }
+            )
+            return rmse
 
-        study = optuna.create_study(direction="minimize")
         study.optimize(objective, n_trials=n_trials)
 
-        best_params = study.best_params
+        # trials CSV
+        trial_df = pl.DataFrame(trial_logs)
+        if Path(optuna_log_path).exists():
+            with open(optuna_log_path, "ab") as f:
+                trial_df.write_csv(f, include_header=False)
+        else:
+            trial_df.write_csv(optuna_log_path, include_header=True)
+        print(f"[INFO] Appended trial logs to: {optuna_log_path}")
+
+        print(f"[INFO] Best params for {target}: {study.best_params}")
+        print(f"[INFO] Best value: {study.best_value:.5f}")
+
+        # ---- Final training on train+validate ----
         X_train_full_np = (
             pl.concat([df_train[features_for_model], df_validate[features_for_model]])
             .to_numpy(writable=True)
             .astype(np.float32)
         )
         y_train_full_np = pl.concat([df_train[target], df_validate[target]]).to_numpy(writable=True).astype(np.float32)
-        lgb_train_full = lgb.Dataset(X_train_full_np, y_train_full_np)
+        lgb_train_full = lgb.Dataset(X_train_full_np, y_train_full_np, free_raw_data=False)
+        lgb_train_full.construct()
 
+        final_params = {**base_params, **study.best_params}
         best_model = lgb.train(
-            best_params,
+            final_params,
             lgb_train_full,
+            valid_sets=[lgb_train_full],
+            num_boost_round=final_params.get("n_estimators"),
+            callbacks=[
+                *([lgb.early_stopping(early_stopping_rounds)] if early_stopping_rounds else []),
+                lgb.log_evaluation(period=log_period_final),
+            ],
         )
 
         model_filename = Path(model_path) / f"lgbm_reg_{target}_model.joblib"
         joblib.dump(best_model, model_filename)
+        print(f"[INFO] Model saved to: {model_filename}")
+
+        # ---- SHAP（サンプリング）----
+        print(f"[INFO] Calculating SHAP values for {target}")
+        sample_n = min(shap_sample_size, X_test_np.shape[0])
+        if sample_n < X_test_np.shape[0]:
+            rng = np.random.default_rng(seed=base_params.get("seed", 42))
+            idx = rng.choice(X_test_np.shape[0], size=sample_n, replace=False)
+            X_shap = X_test_np[idx]
+        else:
+            X_shap = X_test_np
 
         explainer = shap.TreeExplainer(best_model)
-        shap_values = explainer.shap_values(X_test_np)
-
+        shap_values = explainer.shap_values(X_shap)
         shap_df = pl.DataFrame(
             {"feature": features_for_model, "importance": [abs(v).mean() for v in shap_values.T]}
         ).sort("importance", descending=True)
 
         shap_df_path = Path(model_path) / f"shap_values_{target}.csv"
         shap_df.write_csv(shap_df_path)
+        print(f"[INFO] SHAP values saved to: {shap_df_path}")
+
+        # ---- Metrics on test ----
+        y_test_np = df_test[target].to_numpy(writable=True).astype(np.float32)
+        y_pred = best_model.predict(X_test_np)
+        rmse_test = float(np.sqrt(mean_squared_error(y_test_np, y_pred)))
+        r2_test = float(r2_score(y_test_np, y_pred))
+        print(f"[INFO] Test RMSE for {target}: {rmse_test:.5f}")
+        print(f"[INFO] Test R²   for {target}: {r2_test:.5f}")
+
+        metrics_df = pl.DataFrame(
+            {
+                "run_id": [run_id],
+                "run_started_at": [run_started_at],
+                "target": [target],
+                "rmse_test": [rmse_test],
+                "r2_test": [r2_test],
+            }
+        )
+        if Path(metrics_path).exists():
+            with open(metrics_path, "ab") as f:
+                metrics_df.write_csv(f, include_header=False)
+        else:
+            metrics_df.write_csv(metrics_path, include_header=True)
+        print(f"[INFO] Metrics appended to: {metrics_path}")
 
         results[target] = (best_model, shap_df)
 
+    print("\n[INFO] All targets processed successfully.")
     return results

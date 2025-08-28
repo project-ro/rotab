@@ -190,36 +190,77 @@ class Pipeline:
         logger.info(f"Mermaid DAG generated at: {path}")
 
     def execute_script(self, source_dir: str) -> None:
-        # SageMaker でもローカルでも動く一時ディレクトリ生成
-        tmpdir_base = "/opt/ml/tmp" if os.path.exists("/opt/ml/tmp") else None
-        tmpdir = tempfile.mkdtemp(prefix="rotab_tmp_", dir=tmpdir_base)
+        # 1) /opt/ml/tmp の中身だけ削除（ディレクトリ自体は残す）
+        opt_tmp = "/opt/ml/tmp"
+        if os.path.isdir(opt_tmp):
+            try:
+                for name in os.listdir(opt_tmp):
+                    path = os.path.join(opt_tmp, name)
+                    try:
+                        if os.path.isdir(path) and not os.path.islink(path):
+                            shutil.rmtree(path, ignore_errors=True)
+                        else:
+                            os.remove(path)
+                    except FileNotFoundError:
+                        pass
+                    except IsADirectoryError:
+                        shutil.rmtree(path, ignore_errors=True)
+                    except Exception as ex:
+                        logger.warning(f"cleanup skip: {path} ({ex})")
+            except Exception as ex:
+                logger.warning(f"failed to clean {opt_tmp}: {ex}")
+        else:
+            try:
+                os.makedirs(opt_tmp, exist_ok=True)
+            except Exception as ex:
+                logger.warning(f"failed to create {opt_tmp}: {ex}")
 
+        # 2) 実行用の一時ディレクトリ作成（/opt/ml/tmp 優先）
+        tmpdir_base = opt_tmp if os.path.isdir(opt_tmp) else "/tmp"
+        try:
+            tmpdir = tempfile.mkdtemp(prefix="rotab_tmp_", dir=tmpdir_base)
+        except FileNotFoundError:
+            os.makedirs("/tmp", exist_ok=True)
+            tmpdir = tempfile.mkdtemp(prefix="rotab_tmp_", dir="/tmp")
+
+        # 3) 子プロセス環境設定
         env = os.environ.copy()
-        env["TMPDIR"] = tmpdir
+        env.update(
+            {
+                "TMPDIR": tmpdir,
+                "TEMP": tmpdir,
+                "TMP": tmpdir,
+                "ARROW_TMPDIR": tmpdir,
+                "POLARS_TEMP_DIR": tmpdir,
+                "XDG_CACHE_HOME": tmpdir,
+                "JUPYTER_RUNTIME_DIR": tmpdir,
+                "PYTHONUNBUFFERED": "1",
+            }
+        )
 
         try:
             proc = subprocess.Popen(
-                ["python", "main.py"],
+                ["python", "-u", "main.py"],
                 cwd=source_dir,
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                bufsize=1,
             )
 
-            for line in proc.stdout:
-                logger.info(line.rstrip())  # printなし、logger.infoのみ
+            for line in iter(proc.stdout.readline, ""):
+                if not line:
+                    break
+                logger.info(line.rstrip())
 
             proc.wait()
             if proc.returncode != 0:
                 raise subprocess.CalledProcessError(proc.returncode, proc.args)
 
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             logger.error("Script execution failed.")
             raise
-
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def run(self, execute: bool = True, dag: bool = False, selected_processes: Optional[List[str]] = None) -> None:
         logger.info("Pipeline run started.")
